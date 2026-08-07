@@ -39,6 +39,7 @@ def test_startup_config_logging_never_prints_secrets(monkeypatch, capsys):
 def test_research_run_persistence_roundtrip_in_memory_fallback():
     """No engine -> pure in-memory fallback, same contract as before."""
     store = MemoryStore(engine=None, create_tables=False)
+    assert store.database_backend == "memory"
     run = ResearchRun(question="Does the store round-trip correctly?")
     store.save_run(run)
 

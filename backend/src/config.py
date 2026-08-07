@@ -75,6 +75,15 @@ class Settings:
     def database_configured(self) -> bool:
         return bool(self.database_url or self.mysql_configured)
 
+    @property
+    def database_backend(self) -> str:
+        """Canonical storage backend: postgresql | mysql | memory."""
+        if self.database_url:
+            return "postgresql"
+        if self.mysql_configured:
+            return "mysql"
+        return "memory"
+
     # -- Chroma --------------------------------------------------------------
     @property
     def chroma_persist_dir(self) -> Optional[str]:

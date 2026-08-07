@@ -1,18 +1,24 @@
-"""Research run storage: real MySQL persistence (Part B) with the exact
-same in-memory-fallback pattern used by src/memory/mysql_store.py and
-src/evolution/store.py.
+"""Research run storage: PostgreSQL (Render) primary, MySQL (local dev) fallback,
+in-memory fallback of last resort.
 
-Deliberately a write-through cache, not a pure MySQL-backed store: the
-orchestrator and ResearchLoop mutate a run's `trace`/`sources`/etc. in place
-throughout a run via plain attribute/list mutation (no `save_run()` call
-after every single trace event), and Phase 10's cooperative cancellation
-depends on `store.get_run(run_id)` returning the SAME live object the
-running orchestrator coroutine holds. So within one process, the in-memory
-`_runs` dict remains authoritative (unchanged behavior); MySQL is written
-through on every `save_run()` for durability, and is the fallback read path
-for a run created in a previous process (i.e. after a restart).
+Database priority:
+    1. DATABASE_URL  → PostgreSQL (Render / any hosted PG)
+    2. MYSQL_*       → local MySQL
+    3. (none)        → volatile in-memory dict (degraded mode)
+
+Write-through cache design (intentional):
+    The orchestrator and ResearchLoop mutate a run's `trace`/`sources`/etc.
+    in place throughout a run via plain attribute/list mutation (no
+    `save_run()` after every trace event). Phase 10 cooperative cancellation
+    depends on `store.get_run(run_id)` returning the SAME live object the
+    running orchestrator coroutine holds. So within one process, the
+    in-memory `_runs` dict remains authoritative (unchanged behavior);
+    the configured database is written-through on every `save_run()` for
+    durability, and is the fallback read path for a run created in a
+    previous process (i.e. after a restart).
 """
 
+import logging
 import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -25,6 +31,8 @@ from sqlalchemy.types import JSON, String, Text
 from src.models.schemas import ResearchRun
 
 import os
+
+_logger = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -46,6 +54,15 @@ def _env(key: str, default=None):
     return os.getenv(key, default)
 
 
+def _normalize_pg_url(url: str) -> str:
+    """Normalize postgres:// or postgresql:// to postgresql+psycopg:// for SQLAlchemy."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 class MemoryStore:
     """Research run store. PostgreSQL / MySQL primary (durable), in-memory dict is the
     live cache every in-flight run is actually mutated through."""
@@ -53,7 +70,8 @@ class MemoryStore:
     def __init__(self, engine: Optional[Engine] = None, create_tables: bool = True):
         self._runs: Dict[str, ResearchRun] = {}
         self._db_active = False
-        self._db_backend_name = "in-memory fallback"
+        self._database_backend = "memory"
+        self._db_backend_name = "memory"
         self._engine: Optional[Engine] = None
         self._session_factory: Optional[sessionmaker] = None
 
@@ -63,28 +81,29 @@ class MemoryStore:
 
     # -- engine / connection handling --------------------------------------
     def _build_engine_from_env(self) -> Optional[Engine]:
-        # 1. Check DATABASE_URL (Render PostgreSQL)
+        # 1. Check DATABASE_URL (Render PostgreSQL — takes priority over MySQL)
         db_url = _env("DATABASE_URL")
         if db_url:
-            # Normalize postgres:// or postgresql:// to postgresql+psycopg:// if no driver is specified
-            if db_url.startswith("postgres://"):
-                db_url = "postgresql+psycopg://" + db_url[len("postgres://"):]
-            elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
-                db_url = "postgresql+psycopg://" + db_url[len("postgresql://"):]
-
+            normalized = _normalize_pg_url(db_url)
             try:
                 engine = create_engine(
-                    db_url,
+                    normalized,
                     pool_pre_ping=True,
                     pool_recycle=3600,
                     connect_args={"connect_timeout": 5},
                 )
+                self._database_backend = "postgresql"
                 self._db_backend_name = "PostgreSQL"
                 return engine
-            except Exception:
-                pass
+            except Exception as e:
+                # Log the type/message but NEVER the url (it contains the password)
+                _logger.warning(
+                    "DATABASE_URL engine creation failed (%s: %s); "
+                    "will try MYSQL_* fallback.",
+                    type(e).__name__, e,
+                )
 
-        # 2. Check local MySQL
+        # 2. Check local MySQL (MYSQL_HOST + MYSQL_USER + MYSQL_DATABASE required)
         host = _env("MYSQL_HOST")
         port = _env("MYSQL_PORT", "3306")
         user = _env("MYSQL_USER")
@@ -98,18 +117,30 @@ class MemoryStore:
                     pool_recycle=3600,
                     connect_args={"connect_timeout": 3},
                 )
+                self._database_backend = "mysql"
                 self._db_backend_name = "MySQL"
                 return engine
-            except Exception:
-                pass
+            except Exception as e:
+                _logger.warning(
+                    "MySQL engine creation failed (%s: %s); "
+                    "falling back to in-memory store.",
+                    type(e).__name__, e,
+                )
 
-        self._db_backend_name = "in-memory fallback"
+        # 3. Neither configured → in-memory fallback
+        _logger.info(
+            "No database configured (DATABASE_URL and MYSQL_* unset). "
+            "Research runs will NOT survive a process restart."
+        )
+        self._database_backend = "memory"
+        self._db_backend_name = "memory"
         return None
 
     def _try_connect(self, engine: Optional[Engine], create_tables: bool):
         if engine is None:
             self._db_active = False
-            self._db_backend_name = "in-memory fallback"
+            self._database_backend = "memory"
+            self._db_backend_name = "memory"
             return
         try:
             from sqlalchemy import text as sa_text
@@ -121,13 +152,20 @@ class MemoryStore:
             self._engine = engine
             self._session_factory = sessionmaker(bind=engine)
             self._db_active = True
-            if self._db_backend_name == "in-memory fallback":
+            if self._database_backend == "memory":
                 # Engine was passed in explicitly (e.g. SQLite in tests)
                 self._db_backend_name = engine.dialect.name.capitalize()
-        except Exception:
+        except Exception as e:
+            _logger.warning(
+                "Database connection test failed (%s: %s); "
+                "using in-memory fallback. Research runs will NOT persist across restarts.",
+                type(e).__name__, e,
+            )
             self._db_active = False
-            self._db_backend_name = "in-memory fallback"
+            self._database_backend = "memory"
+            self._db_backend_name = "memory"
 
+    # -- backward-compat properties (used by tests + health endpoint) ------
     @property
     def is_mysql_active(self) -> bool:
         """Maintained for backward-compatibility with tests / code checking DB status."""
@@ -139,7 +177,15 @@ class MemoryStore:
 
     @property
     def db_backend(self) -> str:
-        return self._db_backend_name if self._db_active else "in-memory fallback"
+        """Human-readable backend name for startup logging."""
+        if not self._db_active:
+            return "memory"
+        return self._db_backend_name
+
+    @property
+    def database_backend(self) -> str:
+        """Canonical backend id: postgresql | mysql | memory."""
+        return self._database_backend if self._db_active else "memory"
 
     def ping(self) -> bool:
         return self._db_active
@@ -165,10 +211,12 @@ class MemoryStore:
             with self._session_factory() as session:
                 session.merge(self._record_from_run(run))
                 session.commit()
-        except Exception:
-            # Durability is best-effort; the in-memory cache remains the
-            # live source of truth for the current process either way.
-            pass
+        except Exception as e:
+            # Safe logging: log exception type and message — credentials are NEVER in these
+            _logger.error(
+                "Database persistence failed for run %s: %s - %s",
+                run.run_id, type(e).__name__, e,
+            )
 
     def _load_from_db(self, run_id: str) -> Optional[ResearchRun]:
         if not self._db_active:
@@ -177,7 +225,11 @@ class MemoryStore:
             with self._session_factory() as session:
                 record = session.get(ResearchRunRecord, run_id)
                 return self._run_from_record(record) if record else None
-        except Exception:
+        except Exception as e:
+            _logger.error(
+                "Database load failed for run %s: %s - %s",
+                run_id, type(e).__name__, e,
+            )
             return None
 
     def _list_from_db(self) -> List[ResearchRun]:
@@ -191,7 +243,8 @@ class MemoryStore:
                     .all()
                 )
                 return [self._run_from_record(r) for r in records]
-        except Exception:
+        except Exception as e:
+            _logger.error("Database list failed: %s - %s", type(e).__name__, e)
             return []
 
     # -- public interface (unchanged signatures) ------------------------------
@@ -201,8 +254,10 @@ class MemoryStore:
         self._persist_to_db(run)
 
     def get_run(self, run_id: str) -> Optional[ResearchRun]:
+        # 1. Check live in-memory cache first (same object the orchestrator mutates)
         if run_id in self._runs:
             return self._runs[run_id]
+        # 2. Try persistent database (cross-restart recovery)
         loaded = self._load_from_db(run_id)
         if loaded is not None:
             self._runs[run_id] = loaded
