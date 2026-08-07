@@ -16,6 +16,20 @@ class MockAdapter(LLMAdapter):
 
         combined = f"{system_prompt or ''}\n{prompt}"
 
+        # Phase 6: follow-up research query generation (checked before the
+        # more generic branches below, since its system prompt is the most
+        # specific).
+        if "research_gap" in combined and "follow-up" in combined.lower():
+            return json.dumps({
+                "research_gap": "Current evidence is one-sided or insufficient.",
+                "queries": [
+                    "independent controlled studies on the topic",
+                    "critical review and limitations of the claim",
+                    "contradicting evidence and counterpoints",
+                ],
+                "reason": "Mock heuristic follow-up queries targeting the identified research gap.",
+            })
+
         # Phase 4: claim extraction (checked before the more generic branches
         # below, since its system prompt is the most specific).
         if "claim_text" in combined:

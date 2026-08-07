@@ -65,6 +65,15 @@ class EventType(str, Enum):
     SANDBOX_TIMEOUT = "sandbox_timeout"
     SANDBOX_RESOURCE_LIMIT = "sandbox_resource_limit"
 
+    # Phase 6 - Autonomous research loop events
+    RESEARCH_ITERATION_STARTED = "research_iteration_started"
+    RESEARCH_ITERATION_COMPLETED = "research_iteration_completed"
+    RESEARCH_GAP_IDENTIFIED = "research_gap_identified"
+    FOLLOWUP_QUERIES_GENERATED = "followup_queries_generated"
+    RESEARCH_LOOP_DECISION = "research_loop_decision"
+    RESEARCH_LOOP_COMPLETED = "research_loop_completed"
+    MAX_ITERATIONS_REACHED = "max_iterations_reached"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str
@@ -125,6 +134,8 @@ class ResearchRun(BaseModel):
     evidence_graph_available: bool = False
     quality_result: Dict[str, Any] = Field(default_factory=dict)
     quality_valid: Optional[bool] = None
+    iterations: List[Dict[str, Any]] = Field(default_factory=list)
+    research_decision: Optional[str] = None
 
 class ResearchPlan(BaseModel):
     """Structured research plan produced by the LLM adapter."""
@@ -172,3 +183,5 @@ class ResearchResultResponse(BaseModel):
     evidence_graph_available: bool = False
     quality_result: Dict[str, Any] = Field(default_factory=dict)
     quality_valid: Optional[bool] = None
+    iteration_count: int = 0
+    research_decision: Optional[str] = None

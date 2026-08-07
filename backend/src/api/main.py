@@ -99,6 +99,8 @@ def get_research_result(run_id: str):
         evidence_graph_available=run.evidence_graph_available,
         quality_result=run.quality_result,
         quality_valid=run.quality_valid,
+        iteration_count=len(run.iterations),
+        research_decision=run.research_decision,
     )
 
 @app.get("/api/research/{run_id}/trace", response_model=List[AgentEvent])
@@ -259,3 +261,18 @@ def get_research_quality(run_id: str):
         }
 
     return {"run_id": run_id, "quality": run.quality_result}
+
+# --------------------------------------------------------------------------
+# Phase 6 - Autonomous Research Loop API
+# --------------------------------------------------------------------------
+@app.get("/api/research/{run_id}/iterations")
+def get_research_iterations(run_id: str):
+    """Per-iteration record of the autonomous research loop for a run --
+    queries tried, new/duplicate sources, evidence/claim counts, and the
+    quality-driven decision at each step. Empty list if the loop hasn't
+    produced any iterations yet (e.g. the run is still planning)."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+
+    return {"run_id": run_id, "iterations": run.iterations}

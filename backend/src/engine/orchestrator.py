@@ -6,12 +6,11 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from src.models.schemas import (
-    ResearchRun, RunStatus, AgentEvent, EventType, Source, EvidenceRecord, SecurityEvent,
+    ResearchRun, RunStatus, AgentEvent, EventType, Source, EvidenceRecord,
     ResearchPlan, ResearchReportLLM
 )
 from src.models.evidence import Claim, ClaimStatus
 from src.storage.store import store
-from src.security.guard import security_guard
 from src.memory.manager import memory_manager
 from src.llm.adapter import get_llm_adapter
 from src.llm.base import LLMAdapter, LLMError
@@ -20,21 +19,7 @@ from src.llm.structured import generate_structured
 from src.search.base import SearchError, SearchProvider
 from src.search.factory import get_search_provider
 from src.search.providers.mock import MockSearchProvider
-from src.browser.base import BrowserError
-from src.browser.safe_browser import safe_browser
-from src.evidence.graph_builder import build_evidence_graph
-from src.quality.validator import research_quality_validator
-
-MAX_SOURCES = 5
-MAX_RESULTS_PER_QUERY = 4
-MAX_PASSAGE_CHARS = 1500
-
-
-def _clip(text: str, limit: int = MAX_PASSAGE_CHARS) -> str:
-    text = (text or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
+from src.engine.research_loop import IterationDecision, ResearchLoop
 
 
 class ResearchOrchestrator:
@@ -133,94 +118,34 @@ class ResearchOrchestrator:
             )
             run.trace.append(plan_event)
 
-            # 2. Searching Phase (real search + safe browsing, provider-independent)
-            await self._update_status(run, RunStatus.SEARCHING, "Executing web searches & retrieving evidence sources")
+            # 2-4. Autonomous Research Loop (Phase 6) -- search -> safe browser ->
+            # evidence graph -> Phase 5 quality validation, repeated (bounded by
+            # MAX_RESEARCH_ITERATIONS) until quality.valid or the loop decides it
+            # can't usefully continue. Evidence accumulates across iterations;
+            # duplicate URLs are never reprocessed.
+            await self._update_status(run, RunStatus.SEARCHING, "Running autonomous research loop")
 
             search_provider = self._get_search(run)
-            sources, evidences = await self._search_and_collect(search_provider, plan, run)
+            loop = ResearchLoop(llm=llm, search_provider=search_provider, run=run)
+            loop_result = await loop.run(initial_queries=plan.sub_queries or [run.question])
+
+            sources = loop_result.sources
+            evidences = loop_result.evidence
+            claims = loop_result.claims
+            graph = loop_result.graph
 
             run.sources = sources
             run.evidence = evidences
             run.source_count = len(sources)
-
-            run.trace.append(AgentEvent(
-                run_id=run_id,
-                step="Searching",
-                type=EventType.SEARCH_COMPLETED,
-                title="Retrieved & Sanitized Sources",
-                message=f"Gathered {len(sources)} sources across {len(plan.sub_queries)} sub-quer"
-                        f"{'y' if len(plan.sub_queries) == 1 else 'ies'} and processed security boundaries.",
-                data={"source_count": len(sources)}
-            ))
-
-            # 3. Analyzing Phase - Evidence Graph (Phase 4: claims, linking, contradiction, verification)
-            await self._update_status(run, RunStatus.ANALYZING, "Extracting claims and building the evidence graph")
-
-            def evidence_event_sink(event_type: str, title: str, message: str, data=None):
-                run.trace.append(AgentEvent(
-                    run_id=run_id, step="Evidence Graph", type=EventType(event_type),
-                    title=title, message=message, data=data,
-                ))
-
-            graph, claims = await build_evidence_graph(
-                llm, run_id, run.question, evidences, sources, event_sink=evidence_event_sink,
-            )
             run.claim_count = len(claims)
-            run.evidence_graph_available = len(graph.nodes) > 0
+            run.evidence_graph_available = len(graph.nodes) > 0 if graph else False
+            run.iterations = [it.model_dump() for it in loop_result.iterations]
+            run.research_decision = loop_result.final_decision.value
+            if loop_result.quality_result is not None:
+                run.quality_result = loop_result.quality_result.model_dump()
+                run.quality_valid = loop_result.quality_result.valid
 
-            run.trace.append(AgentEvent(
-                run_id=run_id,
-                step="Analyzing",
-                type=EventType.EVIDENCE_EXTRACTED,
-                title="Evidence Synthesis Complete",
-                message=f"Built evidence graph with {len(claims)} verified claim(s) from {len(evidences)} evidence passage(s).",
-                data={
-                    "claim_count": len(claims),
-                    "graph_nodes": len(graph.nodes),
-                    "graph_edges": len(graph.edges),
-                    "claim_statuses": {c.id: c.status.value for c in claims},
-                }
-            ))
-
-            # 4. Quality Validation Phase (Phase 5) -- runs on the evidence graph
-            # before the report is written, so "enough reliable evidence?" is
-            # checked against real collected data, never against report prose.
-            # Never blocks the pipeline: for Phase 5 the result (valid/warnings/
-            # errors) is recorded on the run and trace, and generation continues
-            # regardless -- the autonomous retry loop that acts on an invalid
-            # result is Phase 6.
-            run.trace.append(AgentEvent(
-                run_id=run_id, step="Quality", type=EventType.QUALITY_VALIDATION_STARTED,
-                title="Quality Validation Started",
-                message="Validating source, evidence, and claim integrity against the evidence graph."
-            ))
-            try:
-                quality_result = research_quality_validator.validate(
-                    run.question, sources, evidences, claims, graph,
-                )
-                run.quality_result = quality_result.model_dump()
-                run.quality_valid = quality_result.valid
-                run.trace.append(AgentEvent(
-                    run_id=run_id,
-                    step="Quality",
-                    type=EventType.QUALITY_VALIDATION_COMPLETED,
-                    title="Quality Validation Completed",
-                    message=(
-                        "Research quality checks passed." if quality_result.valid
-                        else f"Research quality checks found {len(quality_result.errors)} error(s) "
-                             f"and {len(quality_result.warnings)} warning(s)."
-                    ),
-                    data=quality_result.model_dump(),
-                ))
-            except Exception as e:
-                run.trace.append(AgentEvent(
-                    run_id=run_id,
-                    step="Quality",
-                    type=EventType.QUALITY_VALIDATION_FAILED,
-                    title="Quality Validation Failed",
-                    message=f"Quality validation could not complete; continuing without a quality result: {str(e)}",
-                    data={"error": str(e)}
-                ))
+            await self._update_status(run, RunStatus.ANALYZING, "Autonomous research loop finished")
 
             # 5. Generating Report Phase (LLM-generated, provider-independent)
             await self._update_status(run, RunStatus.GENERATING, "Generating final source-backed report")
@@ -327,110 +252,6 @@ class ResearchOrchestrator:
                 data={"error": str(e)}
             ))
             return MockSearchProvider()
-
-    async def _search_and_collect(
-        self, search_provider: SearchProvider, plan: ResearchPlan, run: ResearchRun
-    ) -> tuple[List[Source], List[EvidenceRecord]]:
-        """Search -> Safe Browser -> Prompt Injection Guard -> Evidence, per the
-        Phase 2 flow. Search results whose provider already returns full
-        content (e.g. the Mock provider) skip the live fetch step entirely,
-        which is what keeps the default pipeline network-free for tests."""
-        run_id = run.run_id
-        queries = plan.sub_queries or [run.question]
-
-        run.trace.append(AgentEvent(
-            run_id=run_id, step="Searching", type=EventType.SEARCH_STARTED,
-            title="Web Search Started",
-            message=f"Searching for {len(queries)} sub-quer{'y' if len(queries) == 1 else 'ies'}.",
-            data={"queries": queries}
-        ))
-
-        seen_urls = set()
-        raw_results = []
-        for query in queries:
-            try:
-                results = await search_provider.search(query, max_results=MAX_RESULTS_PER_QUERY)
-            except SearchError as e:
-                run.trace.append(AgentEvent(
-                    run_id=run_id, step="Searching", type=EventType.SEARCH_STARTED,
-                    title="Search Query Failed", message=f"Search for '{query}' failed: {e}",
-                    data={"query": query, "error": str(e)}
-                ))
-                continue
-            for result in results:
-                if result.url in seen_urls:
-                    continue
-                seen_urls.add(result.url)
-                raw_results.append(result)
-            if len(raw_results) >= MAX_SOURCES:
-                break
-
-        sources: List[Source] = []
-        evidences: List[EvidenceRecord] = []
-
-        for result in raw_results[:MAX_SOURCES]:
-            page_text = result.content
-
-            if not getattr(search_provider, "provides_full_content", False):
-                run.trace.append(AgentEvent(
-                    run_id=run_id, step="Browser", type=EventType.BROWSER_FETCH_STARTED,
-                    title="Fetching Source", message=f"Fetching '{result.url}' safely.",
-                    data={"url": result.url}
-                ))
-                try:
-                    page = safe_browser.fetch_page(result.url)
-                    page_text = page.text or result.content
-                    run.trace.append(AgentEvent(
-                        run_id=run_id, step="Browser", type=EventType.BROWSER_FETCH_COMPLETED,
-                        title="Source Fetched", message=f"Fetched '{result.url}' ({len(page_text)} chars).",
-                        data={"url": result.url, "truncated": page.truncated}
-                    ))
-                except BrowserError as e:
-                    run.trace.append(AgentEvent(
-                        run_id=run_id, step="Browser", type=EventType.BROWSER_FETCH_FAILED,
-                        title="Source Fetch Failed",
-                        message=f"Could not safely fetch '{result.url}': {e}. Falling back to the search snippet.",
-                        data={"url": result.url, "error": str(e)}
-                    ))
-                    page_text = result.content
-
-            if not page_text:
-                continue
-
-            sanitized_content, sec_events = security_guard.scan_content(page_text, run_id)
-            for sec_ev in sec_events:
-                run.security_events.append(sec_ev)
-                run.trace.append(AgentEvent(
-                    run_id=run_id,
-                    step="Security Verification",
-                    type=EventType.PROMPT_INJECTION_DETECTED,
-                    title="Untrusted Prompt Injection Neutralized",
-                    message=f"Detected prompt injection pattern: '{sec_ev.snippet}'. Content sanitized.",
-                    data={"action": sec_ev.action_taken, "snippet": sec_ev.snippet, "url": result.url}
-                ))
-
-            passage = _clip(sanitized_content)
-            evidence = EvidenceRecord(
-                claim=f"Key observation from {result.title}",
-                source_id="",
-                source_title=result.title,
-                source_url=result.url,
-                passage=passage,
-                confidence=max(0.5, min(0.95, result.score or 0.85)),
-            )
-            source = Source(
-                title=result.title,
-                url=result.url,
-                publisher=result.source or "Web",
-                published_at=None,
-                description=_clip(sanitized_content, 300),
-                evidence=[evidence],
-            )
-            evidence.source_id = source.id
-            sources.append(source)
-            evidences.append(evidence)
-
-        return sources, evidences
 
     async def _generate_structured(
         self,
@@ -569,6 +390,13 @@ class ResearchOrchestrator:
                 f"below.\n"
             )
 
+        if run.research_decision == IterationDecision.MAX_ITERATIONS_REACHED.value:
+            lines.append(
+                "\n> **Incomplete Research:** Research reached the maximum number of "
+                "iterations before all quality requirements were satisfied. The findings "
+                "below should be treated as preliminary, not fully verified.\n"
+            )
+
         lines.append(report.answer)
 
         if report.key_findings:
@@ -584,6 +412,8 @@ class ResearchOrchestrator:
         if run.quality_result:
             q = run.quality_result
             lines.append("\n**Research Quality:**")
+            if run.iterations:
+                lines.append(f"- Research iterations: {len(run.iterations)}")
             lines.append(f"- Sources analyzed: {q['source_count']}")
             lines.append(f"- Unique sources: {q['unique_source_count']}")
             lines.append(f"- Evidence passages: {q['evidence_count']}")
