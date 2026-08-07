@@ -182,11 +182,14 @@ class MemoryManager:
             pass
 
         # Keyword fallback keeps retrieval alive when the vector layer is down.
-        keyword_matches = self.mysql.search_keyword(query)
-        return [
-            RetrievalResult(memory=m, similarity=0.5)
-            for m in keyword_matches[:top_k]
-        ]
+        try:
+            keyword_matches = self.mysql.search_keyword(query)
+            return [
+                RetrievalResult(memory=m, similarity=0.5)
+                for m in keyword_matches[:top_k]
+            ]
+        except Exception:
+            return []
 
     def retrieve(self, query: str, top_k: int = 5) -> List[RetrievalResult]:
         """Alias for search() used by the orchestrator for pre-planning recall."""

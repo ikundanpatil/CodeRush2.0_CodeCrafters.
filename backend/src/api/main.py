@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI, BackgroundTasks, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -12,6 +14,8 @@ from src.models.memory import (
 from src.storage.store import store
 from src.engine.orchestrator import orchestrator
 from src.memory.manager import memory_manager
+from src.evidence.store import get_evidence_store
+from src.models.evidence import Claim, Evidence, RelationshipType
 
 app = FastAPI(
     title="EvoResearch AE-02 API",
@@ -19,10 +23,15 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Enable CORS for frontend web integration
+# Enable CORS for the local frontend (configurable via CORS_ORIGINS, comma-separated)
+_cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,7 +94,9 @@ def get_research_result(run_id: str):
         sources=run.sources,
         evidence=run.evidence,
         security_events=run.security_events,
-        completed_at=run.completed_at
+        completed_at=run.completed_at,
+        claim_count=run.claim_count,
+        evidence_graph_available=run.evidence_graph_available,
     )
 
 @app.get("/api/research/{run_id}/trace", response_model=List[AgentEvent])
@@ -169,3 +180,59 @@ def create_memory(payload: Memory):
     )
     result = memory_manager.store(memory)
     return result.memory or memory
+
+# --------------------------------------------------------------------------
+# Phase 4 - Evidence Graph API
+# --------------------------------------------------------------------------
+@app.get("/api/evidence/research/{research_run_id}", response_model=List[Claim])
+def evidence_claims_for_run(research_run_id: str):
+    """All claims extracted for a research run."""
+    return get_evidence_store().list_claims_by_run(research_run_id)
+
+@app.get("/api/evidence/claims/{claim_id}", response_model=Claim)
+def evidence_get_claim(claim_id: str):
+    claim = get_evidence_store().get_claim(claim_id)
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found.")
+    return claim
+
+@app.get("/api/evidence/claims/{claim_id}/evidence", response_model=List[Evidence])
+def evidence_for_claim(claim_id: str):
+    return get_evidence_store().list_evidence_by_claim(claim_id)
+
+@app.get("/api/evidence/claims/{claim_id}/contradictions", response_model=List[Evidence])
+def evidence_contradictions_for_claim(claim_id: str):
+    return get_evidence_store().get_contradictions_for_claim(claim_id)
+
+@app.get("/api/evidence/graph/{research_run_id}")
+def evidence_graph_for_run(research_run_id: str):
+    """Node/edge graph: {"research_run_id", "nodes": [{id,type,label}], "edges": [{from,to,relationship}]}."""
+    ev_store = get_evidence_store()
+    claims = ev_store.list_claims_by_run(research_run_id)
+    run = store.get_run(research_run_id)
+    source_titles = {s.id: s.title for s in run.sources} if run else {}
+
+    nodes = []
+    edges = []
+    seen_node_ids = set()
+
+    def add_node(node_id: str, node_type: str, label: str):
+        if node_id in seen_node_ids:
+            return
+        seen_node_ids.add(node_id)
+        nodes.append({"id": node_id, "type": node_type, "label": label})
+
+    for claim in claims:
+        add_node(claim.id, "claim", claim.claim_text)
+        for rel in ev_store.list_relationships_from(claim.id):
+            edges.append({"from": rel.from_id, "to": rel.to_id, "relationship": rel.relationship_type.value})
+
+        for evidence in ev_store.list_evidence_by_claim(claim.id):
+            add_node(evidence.id, "evidence", evidence.evidence_text[:120])
+            source_id = evidence.source_id
+            if source_id:
+                add_node(source_id, "source", source_titles.get(source_id, source_id))
+                for rel in ev_store.list_relationships_from(evidence.id):
+                    edges.append({"from": rel.from_id, "to": rel.to_id, "relationship": rel.relationship_type.value})
+
+    return {"research_run_id": research_run_id, "nodes": nodes, "edges": edges}

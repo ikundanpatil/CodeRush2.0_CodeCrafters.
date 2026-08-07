@@ -30,6 +30,29 @@ class EventType(str, Enum):
     MEMORY_UPDATED = "memory_updated"
     MEMORY_STORAGE_FAILED = "memory_storage_failed"
 
+    # Phase 1 - LLM adapter events
+    LLM_PLANNING_STARTED = "llm_planning_started"
+    LLM_PLANNING_COMPLETED = "llm_planning_completed"
+    LLM_PLANNING_FAILED = "llm_planning_failed"
+    REPORT_GENERATION_STARTED = "report_generation_started"
+    REPORT_GENERATION_COMPLETED = "report_generation_completed"
+    LLM_REPORT_FAILED = "llm_report_failed"
+
+    # Phase 2 - Search / browser events
+    SEARCH_STARTED = "search_started"
+    SEARCH_COMPLETED = "search_completed"
+    BROWSER_FETCH_STARTED = "browser_fetch_started"
+    BROWSER_FETCH_COMPLETED = "browser_fetch_completed"
+    BROWSER_FETCH_FAILED = "browser_fetch_failed"
+    PROMPT_INJECTION_DETECTED = "prompt_injection_detected"
+
+    # Phase 4 - Evidence graph events
+    CLAIM_EXTRACTION_STARTED = "claim_extraction_started"
+    CLAIM_EXTRACTION_COMPLETED = "claim_extraction_completed"
+    EVIDENCE_LINKED = "evidence_linked"
+    CONTRADICTION_DETECTED = "contradiction_detected"
+    VERIFICATION_COMPLETED = "verification_completed"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str
@@ -86,6 +109,28 @@ class ResearchRun(BaseModel):
     error: Optional[str] = None
     trace: List[AgentEvent] = Field(default_factory=list)
     memory_context: List[Dict[str, Any]] = Field(default_factory=list)
+    claim_count: int = 0
+    evidence_graph_available: bool = False
+
+class ResearchPlan(BaseModel):
+    """Structured research plan produced by the LLM adapter."""
+    objective: str = Field(min_length=1)
+    sub_queries: List[str] = Field(min_length=1)
+    source_types: List[str] = Field(default_factory=list)
+    verify: List[str] = Field(default_factory=list)
+
+
+class ResearchReportLLM(BaseModel):
+    """Structured report produced by the LLM adapter.
+
+    Deliberately has no source/URL field: real sources come from the
+    orchestrator's verified evidence, never from the model, to avoid
+    fabricated citations.
+    """
+    answer: str = Field(min_length=1)
+    key_findings: List[str] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
+
 
 class ResearchCreateRequest(BaseModel):
     question: str
@@ -109,3 +154,5 @@ class ResearchResultResponse(BaseModel):
     evidence: List[EvidenceRecord]
     security_events: List[SecurityEvent]
     completed_at: Optional[str]
+    claim_count: int = 0
+    evidence_graph_available: bool = False
