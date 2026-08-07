@@ -7,6 +7,7 @@ from src.models.schemas import (
 )
 from src.storage.store import store
 from src.security.guard import security_guard
+from src.memory.manager import memory_manager
 
 class ResearchOrchestrator:
     async def execute_run(self, run_id: str):
@@ -14,7 +15,59 @@ class ResearchOrchestrator:
         if not run:
             return
 
+        # Route memory AgentEvents into this run's trace
+        def memory_event_sink(event_type: str, title: str, message: str, data=None):
+            run.trace.append(AgentEvent(
+                run_id=run_id,
+                step="Memory",
+                type=EventType(event_type),
+                title=title,
+                message=message,
+                data=data,
+            ))
+        memory_manager.set_event_sink(memory_event_sink)
+
         try:
+            # 0. Memory Retrieval Phase (recall previous research context)
+            await self._update_status(run, RunStatus.PLANNING, "Retrieving relevant memories from previous research")
+            run.trace.append(AgentEvent(
+                run_id=run_id,
+                step="Memory",
+                type=EventType.MEMORY_RETRIEVAL_STARTED,
+                title="Memory Retrieval Started",
+                message=f"Searching semantic memory for context relevant to: '{run.question}'"
+            ))
+
+            context_memories = []
+            try:
+                context_memories = memory_manager.retrieve(run.question, top_k=5)
+                run.memory_context = [r.to_dict(include_content=False) for r in context_memories]
+                run.trace.append(AgentEvent(
+                    run_id=run_id,
+                    step="Memory",
+                    type=EventType.MEMORY_RETRIEVAL_COMPLETED,
+                    title="Memory Retrieval Completed",
+                    message=f"Found {len(context_memories)} relevant memories from previous research.",
+                    data={
+                        "memory_count": len(context_memories),
+                        "memory_ids": [r.memory.id for r in context_memories],
+                        "memory_types": [r.memory.memory_type.value for r in context_memories],
+                        "similarity_scores": [round(r.similarity, 4) for r in context_memories],
+                        "mysql_active": memory_manager.mysql.ping(),
+                        "chroma_active": memory_manager.chroma.ping(),
+                    }
+                ))
+            except Exception as e:
+                context_memories = []
+                run.trace.append(AgentEvent(
+                    run_id=run_id,
+                    step="Memory",
+                    type=EventType.MEMORY_RETRIEVAL_FAILED,
+                    title="Memory Retrieval Failed",
+                    message=f"Semantic memory unavailable; continuing with fresh research only: {str(e)}",
+                    data={"error": str(e)}
+                ))
+
             # 1. Planning Phase
             await self._update_status(run, RunStatus.PLANNING, "Deconstructing research query and establishing plan")
             await asyncio.sleep(0.8)
@@ -24,12 +77,18 @@ class ResearchOrchestrator:
                 step="Planning",
                 type=EventType.PLANNING,
                 title="Research Strategy Created",
-                message=f"Formulated multi-stage search strategy for question: '{run.question}'",
-                data={"sub_queries": [
-                    f"Generative AI impact on software developer productivity",
-                    f"Empirical benchmarks and developer output metrics",
-                    f"Security risks and code synthesis quality evidence"
-                ]}
+                message=(
+                    f"Formulated multi-stage search strategy for question: '{run.question}'"
+                    + (f" leveraging {len(context_memories)} recalled memories as context." if context_memories else ".")
+                ),
+                data={
+                    "sub_queries": [
+                        f"Generative AI impact on software developer productivity",
+                        f"Empirical benchmarks and developer output metrics",
+                        f"Security risks and code synthesis quality evidence"
+                    ],
+                    "previous_research_context": [r.to_dict(include_content=False) for r in context_memories],
+                }
             )
             run.trace.append(plan_event)
 
@@ -128,7 +187,13 @@ class ResearchOrchestrator:
 
             run.answer = (
                 f"### Executive Summary & Analysis for Query:\n*{run.question}*\n\n"
-                f"Based on normalized evidence collected from {len(sources)} reputable sources:\n\n"
+                + (
+                    f"**Previous Research Context**: {len(context_memories)} relevant "
+                    f"memories from earlier research were recalled and cross-checked against "
+                    f"fresh evidence below.\n\n"
+                    if context_memories else ""
+                )
+                + f"Based on normalized evidence collected from {len(sources)} reputable sources:\n\n"
                 f"1. **Productivity Gains**: Empirical research indicates a **25% to 55% improvement in task completion speed** when developers leverage generative AI assistants for boilerplate generation, test writing, and refactoring.\n"
                 f"2. **Quality & Review Overhead**: While writing speed increases, pull request review time and maintenance overhead saw an estimated **18% increase** due to larger code volumes needing rigorous human inspection.\n"
                 f"3. **Security Boundary Enforcement**: During research retrieval, untrusted third-party inputs containing directive overrides were safely caught and neutralized by the security boundary without compromising agent execution state.\n\n"
@@ -144,7 +209,40 @@ class ResearchOrchestrator:
                 data={"answer_length": len(run.answer)}
             ))
 
-            # 5. Completion
+            # 5. Memory Extraction & Storage Phase
+            await self._update_status(run, RunStatus.GENERATING, "Extracting useful memories for future research")
+            await asyncio.sleep(0.5)
+
+            try:
+                memory_results = memory_manager.extract_and_store(run)
+                stored_ok = [m for m in memory_results if m.memory is not None]
+                run.trace.append(AgentEvent(
+                    run_id=run_id,
+                    step="Memory",
+                    type=EventType.MEMORY_CREATED,
+                    title="Research Memories Stored",
+                    message=f"Extracted and stored {len(stored_ok)} memories from this research run.",
+                    data={
+                        "stored_count": len(stored_ok),
+                        "types": {
+                            "sources": sum(1 for m in memory_results if m.memory and m.memory.memory_type.value == "source"),
+                            "findings": sum(1 for m in memory_results if m.memory and m.memory.memory_type.value == "finding"),
+                            "summary": sum(1 for m in memory_results if m.memory and m.memory.memory_type.value == "research_summary"),
+                        },
+                        "mysql_driver": memory_manager.mysql.ping(),
+                    }
+                ))
+            except Exception as e:
+                run.trace.append(AgentEvent(
+                    run_id=run_id,
+                    step="Memory",
+                    type=EventType.MEMORY_STORAGE_FAILED,
+                    title="Memory Storage Failed",
+                    message=f"Failed to store memories: {str(e)}",
+                    data={"error": str(e)}
+                ))
+
+            # 7. Completion
             run.completed_at = datetime.now(timezone.utc).isoformat()
             await self._update_status(run, RunStatus.COMPLETED, "Research pipeline completed successfully")
 

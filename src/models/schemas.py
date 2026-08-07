@@ -22,6 +22,14 @@ class EventType(str, Enum):
     REPORT_GENERATED = "report_generated"
     ERROR = "error"
 
+    # Phase 3 - Memory events
+    MEMORY_RETRIEVAL_STARTED = "memory_retrieval_started"
+    MEMORY_RETRIEVAL_COMPLETED = "memory_retrieval_completed"
+    MEMORY_RETRIEVAL_FAILED = "memory_retrieval_failed"
+    MEMORY_CREATED = "memory_created"
+    MEMORY_UPDATED = "memory_updated"
+    MEMORY_STORAGE_FAILED = "memory_storage_failed"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str
@@ -77,6 +85,7 @@ class ResearchRun(BaseModel):
     answer: Optional[str] = None
     error: Optional[str] = None
     trace: List[AgentEvent] = Field(default_factory=list)
+    memory_context: List[Dict[str, Any]] = Field(default_factory=list)
 
 class ResearchCreateRequest(BaseModel):
     question: str

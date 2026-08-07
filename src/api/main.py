@@ -6,8 +6,12 @@ from src.models.schemas import (
     ResearchRun, ResearchCreateRequest, ResearchStatusResponse,
     ResearchResultResponse, AgentEvent
 )
+from src.models.memory import (
+    Memory, MemorySearchResponse, MemorySearchResponseItem
+)
 from src.storage.store import store
 from src.engine.orchestrator import orchestrator
+from src.memory.manager import memory_manager
 
 app = FastAPI(
     title="EvoResearch AE-02 API",
@@ -108,3 +112,60 @@ def list_research_history():
         )
         for r in runs
     ]
+
+# --------------------------------------------------------------------------
+# Phase 3 - Memory API
+# --------------------------------------------------------------------------
+@app.get("/api/memory/search", response_model=MemorySearchResponse)
+def memory_search(q: str = "", top_k: int = 5):
+    top_k = max(1, min(int(top_k), 50))
+    results = memory_manager.search(q, top_k=top_k)
+    return MemorySearchResponse(
+        query=q,
+        results=[
+            MemorySearchResponseItem(
+                id=r.memory.id,
+                memory_type=r.memory.memory_type.value,
+                content=r.memory.content,
+                summary=r.memory.summary,
+                confidence=r.memory.confidence,
+                importance=r.memory.importance,
+                similarity=r.similarity,
+                research_run_id=r.memory.research_run_id,
+                created_at=r.memory.created_at,
+            )
+            for r in results
+        ],
+    )
+
+@app.get("/api/memory/research/{research_run_id}", response_model=List[Memory])
+def memory_by_research_run(research_run_id: str):
+    """Return all memories associated with a research run."""
+    memories = memory_manager.get_by_research_run(research_run_id)
+    return [Memory(**m.model_dump()) for m in memories]
+
+@app.get("/api/memory/{memory_id}", response_model=Memory)
+def get_memory(memory_id: str):
+    memory = memory_manager.get(memory_id)
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found.")
+    return memory
+
+@app.post("/api/memory", response_model=Memory, status_code=status.HTTP_201_CREATED)
+def create_memory(payload: Memory):
+    """Controlled memory creation for testing/admin purposes.
+
+    Restricted to Memory-type fields only; no unconstrained DB operations.
+    """
+    memory = Memory(
+        memory_type=payload.memory_type,
+        content=payload.content,
+        summary=payload.summary,
+        research_run_id=payload.research_run_id,
+        source_ids=list(payload.source_ids or []),
+        confidence=payload.confidence,
+        importance=payload.importance,
+        metadata=dict(payload.metadata or {}),
+    )
+    result = memory_manager.store(memory)
+    return result.memory or memory
