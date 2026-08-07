@@ -64,6 +64,9 @@ export const researchAPI = {
     }
   },
   getStatus: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.get(`/research/${runId}`);
     } catch (err) {
@@ -72,6 +75,9 @@ export const researchAPI = {
     }
   },
   getResult: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.get(`/research/${runId}/result`);
     } catch (err) {
@@ -80,6 +86,9 @@ export const researchAPI = {
     }
   },
   getTrace: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.get(`/research/${runId}/trace`);
     } catch (err) {
@@ -99,6 +108,9 @@ export const researchAPI = {
   // as the calls above (and as policyAPI/benchmarkAPI): the voice UI must
   // show a real error/placeholder state, never invent a value.
   cancelResearch: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.post(`/research/${runId}/cancel`);
     } catch (err) {
@@ -107,6 +119,9 @@ export const researchAPI = {
     }
   },
   getQuality: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.get(`/research/${runId}/quality`);
     } catch (err) {
@@ -115,6 +130,9 @@ export const researchAPI = {
     }
   },
   getIterations: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.get(`/research/${runId}/iterations`);
     } catch (err) {
@@ -123,6 +141,9 @@ export const researchAPI = {
     }
   },
   getEvidenceGraph: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     try {
       return await api.get(`/evidence/graph/${runId}`);
     } catch (err) {
@@ -136,6 +157,9 @@ export const researchAPI = {
     return await api.get('/research/history');
   },
   getResearchHistoryItem: async (runId) => {
+    if (!runId || runId === '{run_id}' || runId === '%7Brun_id%7D') {
+      throw new Error(`Invalid runId provided: ${runId}`);
+    }
     return await api.get(`/research/history/${runId}`);
   },
 };
