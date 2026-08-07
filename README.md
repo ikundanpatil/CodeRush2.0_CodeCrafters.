@@ -1,14 +1,10 @@
 # CodeRush 2.0 | Team Project Repository
 
----
-
 Project Information
 
 - Team Name : CodeCrafters
 - Project Title : EvoResearch — Self-Evolving Autonomous Research Agent
 - Track/Theme : Agentic AI
-
----
 
 ## Project Description
 
@@ -44,8 +40,6 @@ Safety Check
 Approve / Reject
 ```
 
----
-
 ## Technical Stack
 
 List the technologies used in this project:
@@ -55,7 +49,6 @@ List the technologies used in this project:
 * **Database:** [Enter Database e.g., PostgreSQL, MongoDB, Supabase]
 * **Tools/APIs:** [Enter Tools/APIs e.g., OpenAI API, LangChain, Tavily Search]
 
----
 
 ## Setup and Installation
 
