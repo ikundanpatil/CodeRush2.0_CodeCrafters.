@@ -14,40 +14,14 @@ The main idea behind EvoResearch is **controlled self-improvement**.
 
 Instead of only answering questions, the agent evaluates how well its research strategy performed, identifies weaknesses, proposes an improved strategy, tests that strategy, and only accepts the improvement when it performs better and passes safety checks.
 
-### Core Workflow
-
-```text
-User Question
-      ↓
-Research Planner
-      ↓
-Web Search
-      ↓
-Safe Content Processing
-      ↓
-Prompt Injection Defense
-      ↓
-Evidence Collection
-      ↓
-Research Report
-      ↓
-Strategy Evaluation
-      ↓
-Improved Strategy
-      ↓
-Safety Check
-      ↓
-Approve / Reject
-```
-
 ## Technical Stack
 
 List the technologies used in this project:
 
-* **Frontend:** [Enter Frontend e.g., React, Next.js, Tailwind]
-* **Backend:** [Enter Backend e.g., Node.js, Python, FastAPI]
-* **Database:** [Enter Database e.g., PostgreSQL, MongoDB, Supabase]
-* **Tools/APIs:** [Enter Tools/APIs e.g., OpenAI API, LangChain, Tavily Search]
+* **Frontend:** [React,Vite,Tailwind CSS,Figma]
+* **Backend:** [Python, FastAPI]
+* **Database:** [MySQL,ChromaDB]
+* **Tools/APIs:** [Web Search API,LLM API,Docker,GitHub]
 
 
 ## Setup and Installation
