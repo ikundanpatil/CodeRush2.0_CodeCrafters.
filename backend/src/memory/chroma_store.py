@@ -11,6 +11,7 @@ working for tests and demos, and the research pipeline continues.
 """
 
 import os
+import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.memory.embedding_service import EmbeddingService, embedding_service
@@ -42,10 +43,19 @@ class ChromaStore:
 
             if self.persist_dir:
                 self._client = chromadb.PersistentClient(path=self.persist_dir)
+                active_collection_name = self.collection_name
             else:
                 self._client = chromadb.Client()
+                # chromadb.Client() instances share one process-wide in-memory
+                # System (chromadb caches it by Settings), so two ChromaStore
+                # objects created without a persist_dir would otherwise read
+                # and write the very same collection and pollute each other's
+                # results. Data never survives past this process anyway in
+                # this mode, so a per-instance suffix is free and restores the
+                # isolation "fresh"/ephemeral stores are supposed to have.
+                active_collection_name = f"{self.collection_name}-{uuid.uuid4().hex}"
             self._collection = self._client.get_or_create_collection\
-                (self.collection_name, metadata={"hnsw:space": "cosine"})
+                (active_collection_name, metadata={"hnsw:space": "cosine"})
             self._chroma_active = True
         except Exception:
             self._chroma_active = False

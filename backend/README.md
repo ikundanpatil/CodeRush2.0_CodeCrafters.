@@ -35,6 +35,29 @@ EvoResearch also includes a Phase 3 research-memory layer that allows the agent 
 4. The canonical memory records are loaded from MySQL.
 5. The planner receives the recalled context, but the pipeline still performs fresh research and security checks.
 
+## Phase 7 — Self-Evolution
+
+EvoResearch can evaluate and evolve its own research strategy. A **Strategy** (`src/evolution/models.py`) is a named bundle of the quality thresholds and research-loop limits that used to be static env-var defaults: `min_sources`, `min_evidence`, `min_supported_claims`, `max_iterations`, `max_results_per_query`, `max_sources_per_iteration`. It never touches prompts.
+
+An evolution cycle (`src/evolution/service.py`) runs, on demand:
+
+1. **Research Strategy** — load the current champion strategy.
+2. **Research / Evaluate** — run the champion through a fixed, offline benchmark question set (`src/evolution/benchmark.py`) using the real `ResearchLoop`, and score each result (`src/evolution/scoring.py`).
+3. **Improve Strategy** — ask the LLM to propose adjusted parameters based on which quality checks failed; falls back to a deterministic heuristic if the LLM is unavailable or its output doesn't validate (the default offline `MockAdapter` always takes this path, by design).
+4. **Test New Strategy** — run the candidate through the same benchmark.
+5. **Compare** — candidate vs. baseline mean score.
+6. **Accept / Reject** — a strictly better candidate becomes the new champion and is wired into every subsequent `/api/research` run; otherwise it's kept, rejected, in the lineage for audit.
+
+Trigger a cycle:
+
+```bash
+curl -X POST http://localhost:8000/api/strategy/evolve
+curl http://localhost:8000/api/strategy/current
+curl http://localhost:8000/api/strategy/lineage
+```
+
+Strategies persist the same way memories do: MySQL primary, in-memory fallback if MySQL is unavailable (`src/evolution/store.py`).
+
 ## Environment Variables
 
 Copy [.env.example](.env.example) to `.env` and configure. Never commit `.env`.

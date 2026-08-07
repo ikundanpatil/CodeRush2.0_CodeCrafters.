@@ -74,6 +74,16 @@ class EventType(str, Enum):
     RESEARCH_LOOP_COMPLETED = "research_loop_completed"
     MAX_ITERATIONS_REACHED = "max_iterations_reached"
 
+    # Phase 7 - Self-evolution events
+    STRATEGY_APPLIED = "strategy_applied"
+    EVOLUTION_CYCLE_STARTED = "evolution_cycle_started"
+    EVOLUTION_BASELINE_EVALUATED = "evolution_baseline_evaluated"
+    EVOLUTION_MUTATION_PROPOSED = "evolution_mutation_proposed"
+    EVOLUTION_CANDIDATE_EVALUATED = "evolution_candidate_evaluated"
+    EVOLUTION_ACCEPTED = "evolution_accepted"
+    EVOLUTION_REJECTED = "evolution_rejected"
+    EVOLUTION_CYCLE_COMPLETED = "evolution_cycle_completed"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str

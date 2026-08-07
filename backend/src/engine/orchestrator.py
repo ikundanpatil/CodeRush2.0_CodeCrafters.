@@ -20,6 +20,8 @@ from src.search.base import SearchError, SearchProvider
 from src.search.factory import get_search_provider
 from src.search.providers.mock import MockSearchProvider
 from src.engine.research_loop import IterationDecision, ResearchLoop
+from src.evolution.store import get_evolution_store
+from src.quality.validator import ResearchQualityValidator
 
 
 class ResearchOrchestrator:
@@ -125,8 +127,34 @@ class ResearchOrchestrator:
             # duplicate URLs are never reprocessed.
             await self._update_status(run, RunStatus.SEARCHING, "Running autonomous research loop")
 
+            champion = get_evolution_store().get_champion()
+            run.trace.append(AgentEvent(
+                run_id=run_id,
+                step="Strategy",
+                type=EventType.STRATEGY_APPLIED,
+                title="Research Strategy Applied",
+                message=f"Using strategy generation {champion.generation} (id {champion.id[:8]}).",
+                data={
+                    "strategy_id": champion.id,
+                    "generation": champion.generation,
+                    "params": champion.params.model_dump(),
+                }
+            ))
+
             search_provider = self._get_search(run)
-            loop = ResearchLoop(llm=llm, search_provider=search_provider, run=run)
+            loop = ResearchLoop(
+                llm=llm,
+                search_provider=search_provider,
+                run=run,
+                max_iterations=champion.params.max_iterations,
+                quality_validator=ResearchQualityValidator(
+                    min_sources=champion.params.min_sources,
+                    min_evidence=champion.params.min_evidence,
+                    min_supported_claims=champion.params.min_supported_claims,
+                ),
+                max_results_per_query=champion.params.max_results_per_query,
+                max_sources_per_iteration=champion.params.max_sources_per_iteration,
+            )
             loop_result = await loop.run(initial_queries=plan.sub_queries or [run.question])
 
             sources = loop_result.sources

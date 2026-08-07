@@ -16,6 +16,9 @@ from src.engine.orchestrator import orchestrator
 from src.memory.manager import memory_manager
 from src.evidence.store import get_evidence_store
 from src.models.evidence import Claim, Evidence, RelationshipType
+from src.evolution.models import EvolutionCycleResult, Strategy
+from src.evolution.service import evolution_service
+from src.evolution.store import get_evolution_store
 
 app = FastAPI(
     title="EvoResearch AE-02 API",
@@ -276,3 +279,30 @@ def get_research_iterations(run_id: str):
         raise HTTPException(status_code=404, detail="Research run not found.")
 
     return {"run_id": run_id, "iterations": run.iterations}
+
+# --------------------------------------------------------------------------
+# Phase 7 - Self-Evolution API
+# --------------------------------------------------------------------------
+@app.post("/api/strategy/evolve", response_model=EvolutionCycleResult)
+async def trigger_evolution_cycle():
+    """Run one full Research Strategy -> ... -> Accept/Reject cycle against
+    the fixed offline benchmark and return the result. Only affects future
+    research runs if the candidate strategy is accepted."""
+    return await evolution_service.run_cycle()
+
+@app.get("/api/strategy/current", response_model=Strategy)
+def get_current_strategy():
+    """The current champion strategy applied to new research runs."""
+    return get_evolution_store().get_champion()
+
+@app.get("/api/strategy/lineage", response_model=List[Strategy])
+def get_strategy_lineage():
+    """Full strategy history, newest generation first, including rejected candidates."""
+    return get_evolution_store().list_lineage()
+
+@app.get("/api/strategy/{strategy_id}", response_model=Strategy)
+def get_strategy(strategy_id: str):
+    strategy = get_evolution_store().get(strategy_id)
+    if not strategy:
+        raise HTTPException(status_code=404, detail="Strategy not found.")
+    return strategy

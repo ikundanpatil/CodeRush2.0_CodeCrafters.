@@ -31,7 +31,7 @@ from src.llm.structured import generate_structured
 from src.models.evidence import Claim
 from src.models.schemas import AgentEvent, EventType, EvidenceRecord, ResearchRun, Source
 from src.quality.models import ResearchQualityResult
-from src.quality.validator import research_quality_validator
+from src.quality.validator import ResearchQualityValidator, research_quality_validator
 from src.search.base import SearchError, SearchProvider
 from src.security.guard import security_guard
 
@@ -114,11 +114,17 @@ class ResearchLoop:
         search_provider: SearchProvider,
         run: ResearchRun,
         max_iterations: Optional[int] = None,
+        quality_validator: Optional[ResearchQualityValidator] = None,
+        max_results_per_query: Optional[int] = None,
+        max_sources_per_iteration: Optional[int] = None,
     ):
         self.llm = llm
         self.search_provider = search_provider
         self.research_run = run
         self.max_iterations = max_iterations if max_iterations is not None else _max_iterations()
+        self.quality_validator = quality_validator or research_quality_validator
+        self.max_results_per_query = max_results_per_query or MAX_RESULTS_PER_QUERY
+        self.max_sources_per_iteration = max_sources_per_iteration or MAX_SOURCES_PER_ITERATION
         self.seen_urls: Set[str] = set()
 
     def _emit(self, step: str, event_type: EventType, title: str, message: str, data: Optional[dict] = None):
@@ -162,7 +168,7 @@ class ResearchLoop:
 
             try:
                 graph, claims = await self._build_graph(all_evidences, all_sources)
-                quality_result = research_quality_validator.validate(
+                quality_result = self.quality_validator.validate(
                     self.research_run.question, all_sources, all_evidences, claims, graph,
                 )
             except Exception as e:
@@ -172,7 +178,7 @@ class ResearchLoop:
                     f"Quality validation could not complete for iteration {iteration_number}: {e}",
                     {"iteration": iteration_number, "error": str(e)},
                 )
-                quality_result = quality_result or research_quality_validator.validate(
+                quality_result = quality_result or self.quality_validator.validate(
                     self.research_run.question, all_sources, all_evidences, claims, graph,
                 )
 
@@ -260,7 +266,7 @@ class ResearchLoop:
         # store so their now-superseded claims never leak into that API).
         try:
             graph, claims = await self._build_graph(all_evidences, all_sources, store=get_evidence_store())
-            quality_result = research_quality_validator.validate(
+            quality_result = self.quality_validator.validate(
                 self.research_run.question, all_sources, all_evidences, claims, graph,
             )
         except Exception as e:
@@ -311,7 +317,7 @@ class ResearchLoop:
         duplicate_count = 0
         for query in queries:
             try:
-                results = await self.search_provider.search(query, max_results=MAX_RESULTS_PER_QUERY)
+                results = await self.search_provider.search(query, max_results=self.max_results_per_query)
             except SearchError as e:
                 self._emit(
                     "Searching", EventType.SEARCH_STARTED, "Search Query Failed",
@@ -324,13 +330,13 @@ class ResearchLoop:
                     continue
                 self.seen_urls.add(result.url)
                 raw_results.append(result)
-            if len(raw_results) >= MAX_SOURCES_PER_ITERATION:
+            if len(raw_results) >= self.max_sources_per_iteration:
                 break
 
         sources: List[Source] = []
         evidences: List[EvidenceRecord] = []
 
-        for result in raw_results[:MAX_SOURCES_PER_ITERATION]:
+        for result in raw_results[:self.max_sources_per_iteration]:
             page_text = result.content
 
             if not getattr(self.search_provider, "provides_full_content", False):
