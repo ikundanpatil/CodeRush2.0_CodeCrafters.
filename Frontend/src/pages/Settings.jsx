@@ -14,7 +14,7 @@ const Settings = () => {
   const [reasoningBudget, setReasoningBudget] = useState('High');
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [webhookUrl, setWebhookUrl] = useState('https://hooks.company.com/research-events');
-  const [apiUrl, setApiUrl] = useState('http://localhost:8000/api');
+  const [apiUrl, setApiUrl] = useState(import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api');
   const [saved, setSaved] = useState(false);
 
   const handleSave = (e) => {

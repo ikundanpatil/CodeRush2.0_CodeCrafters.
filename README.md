@@ -64,9 +64,51 @@ It:
 
 ## Setup and Installation
 
-Provide instructions on how to run your project locally:
+This is a two-service repo: `backend/` (FastAPI) and `frontend/` (React + Vite), run independently.
 
-1.Clone the repository.<br>
-2.Install dependencies: npm install or pip install -r requirements.txt<br>
-3.Configure environment variables (provide a .env.example if necessary).<br>
-4.Start the development server: npm run dev or python main.py
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+cp .env.example .env      # fill in real values; never commit .env
+uvicorn src.api.main:app --reload --port 8000
+
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+See [`backend/README.md`](backend/README.md) for the full environment variable reference, database setup, and API documentation.
+
+## Deployment (Vercel + Railway)
+
+### Backend → Railway
+
+1. Create a new Railway project, deploy from this GitHub repo, and set the **Root Directory** to `backend`.
+2. Railway detects `requirements.txt` and the `Procfile` (`web: uvicorn src.api.main:app --host 0.0.0.0 --port $PORT`) automatically — no extra build config needed.
+3. Add a MySQL plugin (optional — the app falls back to in-memory storage if MySQL isn't configured) and set these variables, referencing the plugin's own vars:
+   ```
+   MYSQL_HOST=${{MySQL.MYSQLHOST}}
+   MYSQL_PORT=${{MySQL.MYSQLPORT}}
+   MYSQL_USER=${{MySQL.MYSQLUSER}}
+   MYSQL_PASSWORD=${{MySQL.MYSQLPASSWORD}}
+   MYSQL_DATABASE=${{MySQL.MYSQLDATABASE}}
+   ```
+4. Set the real provider + secret variables (`LLM_PROVIDER=nvidia` or `openai`, `NVIDIA_API_KEY`/`OPENAI_API_KEY`, `SEARCH_PROVIDER=tavily`, `TAVILY_API_KEY`) and `CORS_ORIGINS=https://<your-vercel-domain>`.
+5. Leave `SANDBOX_PROVIDER=mock` — Railway's containers don't provide Docker-in-Docker, so the real Docker sandbox provider won't work there.
+6. Leave `CHROMA_PERSIST_DIR` empty unless you attach a persistent volume — otherwise Chroma runs in-memory and resets on redeploy (research history in MySQL is unaffected).
+7. Note the generated `*.up.railway.app` URL — you'll need it for the frontend.
+
+### Frontend → Vercel
+
+1. Import this repo into Vercel and set the **Root Directory** to `frontend`. Vercel auto-detects the Vite framework preset (build command `npm run build`, output `dist`).
+2. Add an environment variable: `VITE_API_BASE_URL=https://<your-railway-domain>/api`.
+3. `vercel.json` (already in `frontend/`) rewrites all routes to `index.html` so client-side routes (e.g. `/command-center`) work on direct load/refresh.
+4. Deploy, then go back to Railway and set `CORS_ORIGINS` to the resulting `https://<your-vercel-domain>` (no trailing slash).
+
+### Verifying the deployment
+
+- `GET https://<railway-domain>/api/health` should return `{"status":"ok",...}`.
+- Open the Vercel URL, submit a research question from the Command Center, and confirm it reaches the backend (network tab / no CORS errors).
+- Voice input requires a Chromium-based browser and HTTPS (Vercel serves HTTPS by default, so this works out of the box).

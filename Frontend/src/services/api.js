@@ -1,8 +1,13 @@
 import axios from 'axios';
 
-// Base Axios instance pointing to FastAPI backend
+// Base Axios instance pointing to FastAPI backend. Set VITE_API_BASE_URL in
+// production (e.g. Vercel env vars pointing at the Railway backend URL,
+// like https://your-app.up.railway.app/api). Falls back to localhost for
+// local development so `npm run dev` keeps working with no setup.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
