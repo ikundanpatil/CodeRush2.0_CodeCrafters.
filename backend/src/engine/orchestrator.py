@@ -23,6 +23,7 @@ from src.search.providers.mock import MockSearchProvider
 from src.browser.base import BrowserError
 from src.browser.safe_browser import safe_browser
 from src.evidence.graph_builder import build_evidence_graph
+from src.quality.validator import research_quality_validator
 
 MAX_SOURCES = 5
 MAX_RESULTS_PER_QUERY = 4
@@ -181,7 +182,47 @@ class ResearchOrchestrator:
                 }
             ))
 
-            # 4. Generating Report Phase (LLM-generated, provider-independent)
+            # 4. Quality Validation Phase (Phase 5) -- runs on the evidence graph
+            # before the report is written, so "enough reliable evidence?" is
+            # checked against real collected data, never against report prose.
+            # Never blocks the pipeline: for Phase 5 the result (valid/warnings/
+            # errors) is recorded on the run and trace, and generation continues
+            # regardless -- the autonomous retry loop that acts on an invalid
+            # result is Phase 6.
+            run.trace.append(AgentEvent(
+                run_id=run_id, step="Quality", type=EventType.QUALITY_VALIDATION_STARTED,
+                title="Quality Validation Started",
+                message="Validating source, evidence, and claim integrity against the evidence graph."
+            ))
+            try:
+                quality_result = research_quality_validator.validate(
+                    run.question, sources, evidences, claims, graph,
+                )
+                run.quality_result = quality_result.model_dump()
+                run.quality_valid = quality_result.valid
+                run.trace.append(AgentEvent(
+                    run_id=run_id,
+                    step="Quality",
+                    type=EventType.QUALITY_VALIDATION_COMPLETED,
+                    title="Quality Validation Completed",
+                    message=(
+                        "Research quality checks passed." if quality_result.valid
+                        else f"Research quality checks found {len(quality_result.errors)} error(s) "
+                             f"and {len(quality_result.warnings)} warning(s)."
+                    ),
+                    data=quality_result.model_dump(),
+                ))
+            except Exception as e:
+                run.trace.append(AgentEvent(
+                    run_id=run_id,
+                    step="Quality",
+                    type=EventType.QUALITY_VALIDATION_FAILED,
+                    title="Quality Validation Failed",
+                    message=f"Quality validation could not complete; continuing without a quality result: {str(e)}",
+                    data={"error": str(e)}
+                ))
+
+            # 5. Generating Report Phase (LLM-generated, provider-independent)
             await self._update_status(run, RunStatus.GENERATING, "Generating final source-backed report")
             run.trace.append(AgentEvent(
                 run_id=run_id, step="Generating", type=EventType.REPORT_GENERATION_STARTED,
@@ -200,7 +241,7 @@ class ResearchOrchestrator:
                 data={"answer_length": len(run.answer)}
             ))
 
-            # 5. Memory Extraction & Storage Phase -- only store findings that
+            # 6. Memory Extraction & Storage Phase -- only store findings that
             # actually reached a verified status (supported/contradicted/mixed),
             # never unverified/unlinked claims.
             await self._update_status(run, RunStatus.GENERATING, "Extracting useful memories for future research")
@@ -537,6 +578,22 @@ class ResearchOrchestrator:
         if report.limitations:
             lines.append("\n**Limitations & Uncertainty:**")
             lines.extend(f"- {limitation}" for limitation in report.limitations)
+
+        # Quality figures come directly from ResearchQualityResult (computed
+        # from this run's actual sources/evidence/claims) -- never hardcoded.
+        if run.quality_result:
+            q = run.quality_result
+            lines.append("\n**Research Quality:**")
+            lines.append(f"- Sources analyzed: {q['source_count']}")
+            lines.append(f"- Unique sources: {q['unique_source_count']}")
+            lines.append(f"- Evidence passages: {q['evidence_count']}")
+            lines.append(f"- Claims: {q['claim_count']}")
+            lines.append(f"- Supported: {q['supported_claim_count']}")
+            lines.append(f"- Contradicted: {q['contradicted_claim_count']}")
+            lines.append(f"- Mixed: {q['mixed_claim_count']}")
+            lines.append(f"- Unverified: {q['unverified_claim_count']}")
+            if q['warnings'] or q['errors']:
+                lines.append(f"- Quality warnings/errors: {len(q['warnings'])} warning(s), {len(q['errors'])} error(s).")
 
         if sources:
             lines.append("\n**Sources:**")

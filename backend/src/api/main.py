@@ -97,6 +97,8 @@ def get_research_result(run_id: str):
         completed_at=run.completed_at,
         claim_count=run.claim_count,
         evidence_graph_available=run.evidence_graph_available,
+        quality_result=run.quality_result,
+        quality_valid=run.quality_valid,
     )
 
 @app.get("/api/research/{run_id}/trace", response_model=List[AgentEvent])
@@ -236,3 +238,24 @@ def evidence_graph_for_run(research_run_id: str):
                     edges.append({"from": rel.from_id, "to": rel.to_id, "relationship": rel.relationship_type.value})
 
     return {"research_run_id": research_run_id, "nodes": nodes, "edges": edges}
+
+# --------------------------------------------------------------------------
+# Phase 5 - Research Quality API
+# --------------------------------------------------------------------------
+@app.get("/api/research/{run_id}/quality")
+def get_research_quality(run_id: str):
+    """Structured research-quality result for a run, computed from the
+    run's actual sources/evidence/claims/evidence graph. Never fabricates
+    figures the run does not have."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+
+    if not run.quality_result:
+        return {
+            "run_id": run_id,
+            "quality": None,
+            "message": "Quality validation has not run yet for this research run.",
+        }
+
+    return {"run_id": run_id, "quality": run.quality_result}

@@ -19,3 +19,7 @@ openai>=1.0.0
 
 # Phase 4 - Evidence graph persistence reuses SQLAlchemy/pymysql (already
 # above) with the same MySQL database as Phase 3 memory.
+
+# Phase 5 - Docker sandbox (shells out to the `docker` CLI, no Python SDK
+# needed) and the research quality validator (stdlib `re` only) -- no extra
+# dependency needed.

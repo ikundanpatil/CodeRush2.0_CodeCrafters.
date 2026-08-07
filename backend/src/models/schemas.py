@@ -53,6 +53,18 @@ class EventType(str, Enum):
     CONTRADICTION_DETECTED = "contradiction_detected"
     VERIFICATION_COMPLETED = "verification_completed"
 
+    # Phase 5 - Quality validation events
+    QUALITY_VALIDATION_STARTED = "quality_validation_started"
+    QUALITY_VALIDATION_COMPLETED = "quality_validation_completed"
+    QUALITY_VALIDATION_FAILED = "quality_validation_failed"
+
+    # Phase 5 - Sandbox execution events
+    SANDBOX_EXECUTION_STARTED = "sandbox_execution_started"
+    SANDBOX_EXECUTION_COMPLETED = "sandbox_execution_completed"
+    SANDBOX_EXECUTION_FAILED = "sandbox_execution_failed"
+    SANDBOX_TIMEOUT = "sandbox_timeout"
+    SANDBOX_RESOURCE_LIMIT = "sandbox_resource_limit"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str
@@ -111,6 +123,8 @@ class ResearchRun(BaseModel):
     memory_context: List[Dict[str, Any]] = Field(default_factory=list)
     claim_count: int = 0
     evidence_graph_available: bool = False
+    quality_result: Dict[str, Any] = Field(default_factory=dict)
+    quality_valid: Optional[bool] = None
 
 class ResearchPlan(BaseModel):
     """Structured research plan produced by the LLM adapter."""
@@ -156,3 +170,5 @@ class ResearchResultResponse(BaseModel):
     completed_at: Optional[str]
     claim_count: int = 0
     evidence_graph_available: bool = False
+    quality_result: Dict[str, Any] = Field(default_factory=dict)
+    quality_valid: Optional[bool] = None
