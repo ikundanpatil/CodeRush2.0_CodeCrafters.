@@ -49,20 +49,47 @@ export const authAPI = {
 };
 
 export const researchAPI = {
-  startResearch: async (config) => {
+  startResearch: async (question) => {
     try {
-      return await api.post('/research/start', config);
-    } catch {
-      return { success: true, taskId: 'res_' + Date.now(), status: 'queued', message: 'Autonomous research pipeline initialized.' };
+      const payload = typeof question === 'string' ? { question } : question;
+      return await api.post('/research', payload);
+    } catch (err) {
+      console.error('Failed to start research run:', err);
+      throw err;
     }
   },
-  getStatus: async (taskId) => {
+  getStatus: async (runId) => {
     try {
-      return await api.get(`/research/status/${taskId}`);
-    } catch {
-      return { taskId, step: 'Data Analysis', progress: 68, activeAgents: 4 };
+      return await api.get(`/research/${runId}`);
+    } catch (err) {
+      console.error('Failed to fetch run status:', err);
+      throw err;
     }
   },
+  getResult: async (runId) => {
+    try {
+      return await api.get(`/research/${runId}/result`);
+    } catch (err) {
+      console.error('Failed to fetch run result:', err);
+      throw err;
+    }
+  },
+  getTrace: async (runId) => {
+    try {
+      return await api.get(`/research/${runId}/trace`);
+    } catch (err) {
+      console.error('Failed to fetch run trace:', err);
+      throw err;
+    }
+  },
+  getHistory: async () => {
+    try {
+      return await api.get('/history');
+    } catch (err) {
+      console.error('Failed to fetch research history:', err);
+      throw err;
+    }
+  }
 };
 
 export const reportAPI = {
