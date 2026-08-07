@@ -3,26 +3,64 @@
 ## Project Information
 
 - **Team Name:** CodeCrafters
-- **Project Title:** EvoResearch — Autonomous AI Research Agent
-- **Track/Theme:** AI / Autonomous Research
-
+- **Project Title:** Autonomous AI Research Agent
+- **Track/Theme:** Agentic AI
 ## Project Description
 
-EvoResearch is an AI-powered autonomous research agent that helps users research a topic automatically.
+**ResearchMind AI** is an autonomous research agent built specifically for **deep research**, unlike general-purpose chatbots that mainly focus on answering questions.
 
-The user provides a research question, and the system searches for relevant information, collects evidence, connects claims with their sources, and checks the quality of the research before generating a final report.
+It:
 
-If the collected evidence is not sufficient, EvoResearch identifies research gaps and performs additional research iterations. The system also includes prompt injection protection, a memory system, an evidence graph, research quality validation, and a secure Docker sandbox.
+* 🔍 **Searches multiple web & academic sources**
+* 📚 Uses **RAG & Grounding** to base answers on retrieved evidence
+* ✅ **Verifies evidence and citations**
+* 🧠 Uses a **Critique Loop** to identify weak or unsupported information
+* 📊 Generates **structured, traceable research reports**
+* 🎛️ Lets users **choose their AI model and research sources**
 
-## Technical Stack
+**Key Difference:**
+**Normal chatbots → Answer questions**
+**ResearchMind → Researches, verifies, and shows the evidence behind the answer**
 
-List the technologies used in this project:
+## 🛠️ Tech Stack
 
-- **Frontend:** React, Vite
-- **Backend:** Python, FastAPI
-- **Database:** MySQL
-- **Vector Storage:** ChromaDB
-- **Tools/APIs:** LLM API, Web Search API, Safe Browser, Docker, Pytest, Git, GitHub
+### Frontend
+
+* **React.js** – Interactive user interface
+* **Vite** – Fast development and build tool
+* **Tailwind CSS** – Responsive and modern UI
+* **JavaScript** – Frontend logic
+
+### Backend
+
+* **Python** – Core backend and AI logic
+* **FastAPI** – REST API and agent orchestration
+
+### AI & Agents
+
+* **OpenAI** – LLM provider
+* **Claude** – LLM provider
+* **RAG (Retrieval-Augmented Generation)** – Evidence-based response generation
+* **Grounding** – Connects AI responses to retrieved sources
+* **Agentic Workflow** – Planning, research, analysis, and verification
+* **Critic & Verification Loop** – Reviews generated results and citations
+
+### Research & Data Sources
+
+* **Tavily** – Web research and search
+* **Semantic Scholar** – Academic research
+* **arXiv** – Research papers and preprints
+* **Crossref** – Scholarly metadata and publications
+
+### Database
+
+* **MySQL / chromdb** – Users, research history, reports, and application data
+
+### Development & Deployment
+
+* **Git & GitHub** – Version control and collaboration
+* **Vercel** – Frontend deployment
+* **Railway** – Backend deployment
 
 ## Setup and Installation
 
