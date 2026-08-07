@@ -16,6 +16,7 @@ import { useResearch } from '../context/ResearchContext';
 import ChatBubble from '../components/ChatBubble';
 import AgentStatusCard from '../components/AgentStatusCard';
 import PolicyStatusCard from '../components/PolicyStatusCard';
+import BenchmarkPanel from '../components/BenchmarkPanel';
 import Button from '../components/Button';
 import { promptSuggestions } from '../utils/dummyData';
 
@@ -170,10 +171,11 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* RIGHT PANEL: Agent Status + Safety/Policy Status */}
+      {/* RIGHT PANEL: Agent Status + Safety/Policy Status + Benchmarks */}
       <div className="lg:col-span-4 space-y-4">
         <AgentStatusCard />
         <PolicyStatusCard />
+        <BenchmarkPanel />
       </div>
     </div>
   );

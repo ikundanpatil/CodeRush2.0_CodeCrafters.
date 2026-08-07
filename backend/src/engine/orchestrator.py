@@ -26,6 +26,8 @@ from src.policy.engine import policy_engine
 from src.policy.models import PolicyAction, PolicyDecision, PolicyRequest
 from src.policy import rules as policy_rules
 from src.quality.validator import ResearchQualityValidator
+from src.citations.builder import build_cited_answer, format_citation_block
+from src.verification.verifier import final_answer_verifier
 
 
 class ResearchOrchestrator:
@@ -198,6 +200,16 @@ class ResearchOrchestrator:
                 run.quality_result = loop_result.quality_result.model_dump()
                 run.quality_valid = loop_result.quality_result.valid
 
+            if loop_result.final_decision == IterationDecision.CANCELLED:
+                run.answer = (
+                    f"Research was cancelled after {len(run.iterations)} iteration(s). "
+                    f"{run.source_count} source(s) and {run.claim_count} claim(s) had been gathered "
+                    "before cancellation; no final report was generated."
+                )
+                run.completed_at = datetime.now(timezone.utc).isoformat()
+                await self._update_status(run, RunStatus.CANCELLED, "Research cancelled by user request")
+                return
+
             await self._update_status(run, RunStatus.ANALYZING, "Autonomous research loop finished")
 
             # 5. Generating Report Phase (LLM-generated, provider-independent)
@@ -208,7 +220,21 @@ class ResearchOrchestrator:
             ))
 
             report = await self._generate_report(llm, run, evidences, claims)
-            run.answer = self._format_answer(run, report, sources, context_memories)
+            run.report_summary = report.answer
+            run.report_key_findings = report.key_findings
+            run.report_limitations = report.limitations
+
+            # Citations (Part E): built purely from real Source objects and
+            # the real evidence graph -- never from the LLM's own text.
+            cited = build_cited_answer(claims, sources, graph)
+            run.citations = [c.model_dump() for c in cited.citations]
+            run.trace.append(AgentEvent(
+                run_id=run_id, step="Generating", type=EventType.CITATIONS_BUILT,
+                title="Citations Built", message=f"Built {len(cited.citations)} citation(s) from real sources.",
+                data={"citation_count": len(cited.citations)},
+            ))
+
+            run.answer = self._format_answer(run, report, sources, context_memories, claims, cited)
 
             run.trace.append(AgentEvent(
                 run_id=run_id,
@@ -217,6 +243,34 @@ class ResearchOrchestrator:
                 title="Final Research Report Ready",
                 message="Structured answer and evidence trace successfully produced.",
                 data={"answer_length": len(run.answer)}
+            ))
+
+            # 5b. Final Answer Verification (Part D) -- checks the GENERATED
+            # ANSWER TEXT itself against the real claims/sources, after
+            # generation. Deterministic; the LLM never judges its own answer.
+            run.trace.append(AgentEvent(
+                run_id=run_id, step="Verifying", type=EventType.FINAL_ANSWER_VERIFICATION_STARTED,
+                title="Final Answer Verification Started",
+                message="Checking the generated answer against real evidence and sources.",
+            ))
+            verification = final_answer_verifier.verify(
+                run.answer, claims, sources, citation_count=len(cited.citations),
+            )
+            run.verification_result = verification.model_dump()
+            if not verification.valid:
+                run.answer += self._format_verification_notice(verification)
+                run.trace.append(AgentEvent(
+                    run_id=run_id, step="Verifying", type=EventType.FINAL_ANSWER_VERIFICATION_ISSUES_FOUND,
+                    title="Verification Found Issues",
+                    message=f"{len(verification.unsupported_claims)} unsupported claim(s), "
+                            f"{len(verification.citation_errors)} citation issue(s) -- flagged in the answer, never silently kept.",
+                    data={"reasons": verification.reasons},
+                ))
+            run.trace.append(AgentEvent(
+                run_id=run_id, step="Verifying", type=EventType.FINAL_ANSWER_VERIFICATION_COMPLETED,
+                title="Final Answer Verification Completed",
+                message=f"Verification {'passed' if verification.valid else 'flagged issues'} (score {verification.score:.2f}).",
+                data={"valid": verification.valid, "score": verification.score},
             ))
 
             # 6. Memory Extraction & Storage Phase -- only store findings that
@@ -443,6 +497,8 @@ class ResearchOrchestrator:
         report: ResearchReportLLM,
         sources: List[Source],
         context_memories: List,
+        claims: List[Claim],
+        cited,
     ) -> str:
         lines = [f"### Executive Summary & Analysis for Query:\n*{run.question}*\n"]
 
@@ -488,10 +544,33 @@ class ResearchOrchestrator:
             if q['warnings'] or q['errors']:
                 lines.append(f"- Quality warnings/errors: {len(q['warnings'])} warning(s), {len(q['errors'])} error(s).")
 
-        if sources:
+        # Citations (Part E): claim -> [n] markers + numbered source list,
+        # built entirely from real Source/Claim/graph data (src/citations/).
+        # Replaces the old flat "Sources:" list -- one authoritative path.
+        citation_block = format_citation_block(cited, claims)
+        if citation_block:
+            lines.append(citation_block)
+        elif sources:
             lines.append("\n**Sources:**")
             lines.extend(f"- [{s.title}]({s.url})" for s in sources)
 
+        return "\n".join(lines)
+
+    def _format_verification_notice(self, verification) -> str:
+        """Deterministic remediation when verification fails: NEVER
+        silently keep unsupported/fabricated content -- always append a
+        clear notice (Option B: flag, rather than a second speculative LLM
+        regeneration pass, per src/verification's design)."""
+        lines = ["\n\n---\n**⚠ Verification Notice**"]
+        if verification.unsupported_claims:
+            lines.append(f"{len(verification.unsupported_claims)} claim(s) could not be verified against evidence:")
+            lines.extend(f"- {c.claim_text}" for c in verification.unsupported_claims)
+        if verification.contradicted_claims:
+            lines.append(f"{len(verification.contradicted_claims)} claim(s) have contradicting evidence:")
+            lines.extend(f"- {c.claim_text}" for c in verification.contradicted_claims)
+        if verification.citation_errors:
+            lines.append("Citation issues detected:")
+            lines.extend(f"- {issue}" for issue in verification.citation_errors)
         return "\n".join(lines)
 
     async def _update_status(self, run: ResearchRun, status: RunStatus, step_description: str):

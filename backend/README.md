@@ -1,110 +1,176 @@
-# EvoResearch Backend
+# EvoResearch — Autonomous AI Research Agent
 
 FastAPI backend for EvoResearch. Run standalone from this `backend/` directory; the React frontend lives in [`../frontend`](../frontend).
 
-## Phase 1 — LLM Adapter
+## Overview
 
-The orchestrator's planning and report-generation steps are driven by a provider-independent LLM adapter (`src/llm/`) instead of hardcoded templates:
+EvoResearch answers a research question by autonomously planning sub-queries, searching the web, safely browsing and sanitizing results, extracting claims into a structured evidence graph, validating research quality, detecting its own research gaps, iterating until quality requirements are met, then verifying its own final answer against the collected evidence and attaching real citations — all under a deterministic safety/policy layer, with a self-evolving research strategy measured against an offline benchmark.
 
-- `src/llm/base.py` — the `LLMAdapter` interface (`generate(prompt, system_prompt=None, **kwargs) -> str`) and typed errors (`LLMConfigError`, `LLMProviderError`, `LLMTimeoutError`, `LLMRateLimitError`, `LLMOutputError`).
-- `src/llm/providers/` — `mock.py` (offline, default, used by tests), `openai.py`, `nvidia.py` (NVIDIA NIM, OpenAI-compatible API).
-- `src/llm/adapter.py` — `get_llm_adapter()` factory, selects a provider from `LLM_PROVIDER`.
+## Architecture
 
-The orchestrator (`src/engine/orchestrator.py`) calls `llm.generate()` to produce a structured `ResearchPlan` (objective, sub-queries, source types, things to verify) before searching, and a structured `ResearchReportLLM` (answer, key findings, limitations) after evidence is collected — both validated with Pydantic. Invalid JSON output is retried once with a stricter prompt; if it still fails, the run degrades gracefully (a fallback plan/report plus an `llm_planning_failed` / `llm_report_failed` trace event) instead of crashing. If the configured provider fails to initialize (e.g. missing API key), the orchestrator logs it and falls back to the Mock provider so a run never hard-fails on LLM configuration.
-
-Real source URLs always come from the pipeline's verified `Source` list, never from the LLM, to avoid fabricated citations.
-
-**Security boundary**: external/untrusted research content is passed inside an explicit `<UNTRUSTED_RESEARCH_CONTENT>` / `<UNTRUSTED_RESEARCH_CONTEXT>` block within the user prompt, never in the system prompt. The system prompt explicitly instructs the model to treat that block as data only and ignore any embedded directives. The existing prompt-injection security guard still scans and sanitizes all retrieved content before it ever reaches the LLM.
-
-## Phase 3 — Research Memory
-
-EvoResearch also includes a Phase 3 research-memory layer that allows the agent to remember useful findings from earlier research runs and retrieve them as context for future questions. The system is designed to preserve the safety principle that old memories are only previous research context and must still be verified with fresh evidence.
-
-## Phase 3 Architecture
-
-- MySQL stores canonical structured memories and metadata.
-- ChromaDB stores semantic vector indexes for similarity search.
-- The memory layer is coordinated through `MemoryManager`.
-- The orchestrator retrieves memory before planning, then still performs fresh research and evidence verification.
-
-## Memory Lifecycle
-
-1. A completed research run is analyzed and transformed into concise memories.
-2. Memories are stored in MySQL and indexed in ChromaDB.
-3. A future question triggers semantic retrieval from ChromaDB.
-4. The canonical memory records are loaded from MySQL.
-5. The planner receives the recalled context, but the pipeline still performs fresh research and security checks.
-
-## Phase 7 — Self-Evolution
-
-EvoResearch can evaluate and evolve its own research strategy. A **Strategy** (`src/evolution/models.py`) is a named bundle of the quality thresholds and research-loop limits that used to be static env-var defaults: `min_sources`, `min_evidence`, `min_supported_claims`, `max_iterations`, `max_results_per_query`, `max_sources_per_iteration`. It never touches prompts.
-
-An evolution cycle (`src/evolution/service.py`) runs, on demand:
-
-1. **Research Strategy** — load the current champion strategy.
-2. **Research / Evaluate** — run the champion through a fixed, offline benchmark question set (`src/evolution/benchmark.py`) using the real `ResearchLoop`, and score each result (`src/evolution/scoring.py`).
-3. **Improve Strategy** — ask the LLM to propose adjusted parameters based on which quality checks failed; falls back to a deterministic heuristic if the LLM is unavailable or its output doesn't validate (the default offline `MockAdapter` always takes this path, by design).
-4. **Test New Strategy** — run the candidate through the same benchmark.
-5. **Compare** — candidate vs. baseline mean score.
-6. **Accept / Reject** — a strictly better candidate becomes the new champion and is wired into every subsequent `/api/research` run; otherwise it's kept, rejected, in the lineage for audit.
-
-Trigger a cycle:
-
-```bash
-curl -X POST http://localhost:8000/api/strategy/evolve
-curl http://localhost:8000/api/strategy/current
-curl http://localhost:8000/api/strategy/lineage
+```
+USER (text or voice)
+  ↓ CONVERSATIONAL SESSION      src/conversation/    backend-side context
+  ↓ RESEARCH PLANNING           src/engine/          LLM-generated plan
+  ↓ LLM ADAPTER                 src/llm/             mock | openai | nvidia
+  ↓ WEB SEARCH                  src/search/          mock | tavily
+  ↓ SAFE BROWSER                src/browser/         timeouts, size caps
+  ↓ PROMPT INJECTION GUARD      src/security/        sanitizes all content
+  ↓ EVIDENCE COLLECTION         src/evidence/
+  ↓ EVIDENCE GRAPH              src/evidence/graph   claim→evidence→source
+  ↓ QUALITY VALIDATION          src/quality/         deterministic checks
+  ↓ RESEARCH GAP DETECTION      src/engine/research_gap.py
+  ↓ AUTONOMOUS RESEARCH LOOP    src/engine/research_loop.py
+  ↓ SELF-EVOLUTION              src/evolution/       strategy mutation
+  ↓ POLICY ENGINE               src/policy/          deterministic allow/deny
+  ↓ FINAL ANSWER VERIFICATION   src/verification/    checks the answer text
+  ↓ CITATION ENGINE             src/citations/       real sources only
+  ↓ PDF RESEARCH REPORT         src/reports/         reportlab
+  ↓ VOICE RESPONSE              frontend (Web Speech API)
 ```
 
-Strategies persist the same way memories do: MySQL primary, in-memory fallback if MySQL is unavailable (`src/evolution/store.py`).
+Supporting subsystems: `src/memory/` (MySQL + ChromaDB research memory), `src/sandbox/` (Docker-isolated code execution), `src/benchmark/` (offline strategy benchmarking), `src/feedback/` (answer ratings), `src/storage/` (research run persistence), `src/config.py` (central `.env` loading).
 
-## Environment Variables
+## Features
 
-Copy [.env.example](.env.example) to `.env` and configure. Never commit `.env`.
+- Autonomous, bounded, quality-driven research loop with gap detection
+- Structured evidence graph with SUPPORTS / CONTRADICTS / DERIVED_FROM edges
+- Deterministic research-quality validation (never fabricated metrics)
+- Final-answer verification: unsupported claims and fabricated URLs/citations are detected and flagged, never silently kept
+- Real citations built only from actually-collected sources
+- Real PDF research reports (reportlab) generated from live run data
+- Conversational sessions with backend-side context ("what are the disadvantages?" resolves against the current topic)
+- Self-evolving research strategy, gated by the Policy Engine and measured by an offline benchmark
+- Deterministic Safety/Policy Engine (voice input can never reach a dangerous action)
+- Research history, JSON export, sanitized share view, and user feedback
 
-- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
-- `CHROMA_PERSIST_DIR`
-- `EVORESEARCH_EMBEDDING_PROVIDER`
-- `OPENAI_API_KEY` (used for OpenAI embeddings, and for the OpenAI LLM provider)
-- `LLM_PROVIDER` — `mock` (default), `openai`, or `nvidia`
-- `LLM_MODEL` — model name for the chosen provider (optional, provider has a default)
-- `NVIDIA_API_KEY` — required when `LLM_PROVIDER=nvidia`
-- `CORS_ORIGINS` — comma-separated allowed frontend origins (default `http://localhost:5173`)
+## Tech stack
 
-## Backend Setup
+Python 3.14 · FastAPI · Pydantic v2 · SQLAlchemy 2 · MySQL · ChromaDB · reportlab · pytest — React 19 · Vite · Tailwind v4 · vitest on the frontend.
+
+## Environment setup
 
 ```bash
 cd backend
 pip install -r requirements.txt
-pytest -q
-uvicorn src.api.main:app --reload --port 8000
+cp .env.example .env      # then fill in real values
 ```
 
-## API Endpoints
+`.env` is loaded at startup by `src/config.py`. It is gitignored — **never commit it**. Secrets never appear in logs, API responses, or exports.
 
-- `GET /api/memory/search?q=<query>&top_k=5`
-- `GET /api/memory/{memory_id}`
-- `GET /api/memory/research/{research_run_id}`
-- `POST /api/memory`
+| Mode | Configuration |
+|---|---|
+| Development / tests | `LLM_PROVIDER=mock`, `SEARCH_PROVIDER=mock` (fully offline, deterministic) |
+| Production | `LLM_PROVIDER=nvidia` (or `openai`), `SEARCH_PROVIDER=tavily` |
 
-## Demo Flow
+The test suite pins the mock providers itself (`tests/conftest.py`), so it stays offline regardless of `.env`.
 
-1. Submit a first research question such as: "Compare the impact of generative AI on software developer productivity."
-2. Let the agent complete the run and store memories.
-3. Submit a follow-up question such as: "How does AI affect developer productivity?"
-4. The trace should show memory retrieval followed by fresh research and verification.
+### Database setup (MySQL)
+
+```sql
+CREATE DATABASE IF NOT EXISTS eversoresearch CHARACTER SET utf8mb4;
+```
+
+Set `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE`. Tables are created automatically and non-destructively on first use (`everso_research_runs`, `everso_memories`, `everso_strategies`, `everso_conversations`, `everso_feedback`). **If MySQL is unreachable, every store falls back to in-memory mode** so the app still runs — you just lose durability across restarts.
+
+### ChromaDB
+
+Set `CHROMA_PERSIST_DIR` for on-disk vector persistence, or leave it empty for an ephemeral in-memory index.
+
+### NVIDIA setup
+
+```
+LLM_PROVIDER=nvidia
+NVIDIA_API_KEY=<your key>
+LLM_MODEL=<optional, provider default otherwise>
+```
+
+### Tavily setup
+
+```
+SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=<your key>
+```
+
+### Docker sandbox setup
+
+`SANDBOX_PROVIDER=docker` requires the Docker CLI on PATH. Use `mock` (the default) for offline development — it never executes anything. Sandbox execution is always mediated by the Policy Engine.
+
+## Running locally
+
+```bash
+# Backend
+cd backend
+uvicorn src.api.main:app --reload --port 8000
+
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+On startup the backend prints which real backend each subsystem resolved to (LLM provider, search provider, memory backend, vector backend, policy status) — never credentials.
 
 ## Testing
 
-The repository includes Phase 1 (core + LLM adapter) and Phase 3 (memory) tests, all run from `backend/`:
-
 ```bash
-cd backend
-pytest -q
+cd backend  && pytest -q
+cd frontend && npm run test && npm run build
 ```
 
-Tests always use `LLM_PROVIDER=mock` (the default) and require no API keys or paid services.
+## Voice interface
 
-## Notes
+The Command Center page (`/command-center`) provides a voice-first interface using the browser's Web Speech API (Chrome/Edge). Click the microphone, speak, and the assistant transitions through IDLE → LISTENING → PROCESSING → RESEARCHING → ANALYZING → VERIFYING → COMPLETED (or CANCELLED/ERROR). Supported commands include: research a topic, find more evidence, compare the findings, summarize the research, create a PDF, read the answer, and stop.
 
-The memory subsystem degrades gracefully. If MySQL, ChromaDB, or embeddings are unavailable, the pipeline continues and records the issue in the research trace instead of crashing. The LLM adapter degrades the same way: an unavailable/misconfigured provider or malformed model output falls back to the Mock provider or a minimal fallback plan/report, and is recorded in the trace, rather than failing the run.
+Voice is only an input mechanism: transcripts map to a small fixed set of application intents and then to the same REST endpoints the rest of the UI uses. There is no path from speech to shell commands, filesystem access, or policy modification.
+
+## Conversation
+
+`POST /api/conversations` starts a session; `POST /api/conversations/{id}/messages` continues it. Context lives on the backend, so a follow-up such as *"what are the disadvantages?"* is resolved against the session's stored topic rather than treated as a brand-new question.
+
+## Research workflow
+
+1. Question arrives (text or voice, optionally inside a conversation session).
+2. Memory retrieval supplies prior research context.
+3. The LLM produces a structured research plan.
+4. The autonomous loop searches, browses, sanitizes, extracts evidence, builds the evidence graph, validates quality, and detects gaps — iterating until quality is satisfied or the safety-limited iteration cap is reached.
+5. The LLM writes a report from verified evidence only.
+6. Citations are built from real sources; the final answer is independently verified.
+7. Memories are stored; a PDF report is available on demand.
+
+## PDF generation
+
+`GET /api/research/{run_id}/report/pdf` returns a real `application/pdf` document rendered by reportlab from the run's actual data — question, executive summary, key findings, verified/unsupported/contradicted claims, citations, quality metrics, gaps, iteration count, methodology, limitations, sources, timestamp and run ID. It is never a static template and never contains fabricated data.
+
+## API endpoints
+
+**Research** — `POST /api/research`, `GET /api/research/{id}`, `/result`, `/trace`, `/quality`, `/iterations`, `POST /api/research/{id}/cancel`
+**History & export** — `GET /api/research/history`, `/history/{id}`, `GET /api/research/{id}/export/json`, `/share`, `GET /api/history`
+**Reports** — `POST|GET /api/research/{id}/report`, `GET /api/research/{id}/report/pdf`
+**Conversations** — `POST /api/conversations`, `GET /api/conversations`, `GET|DELETE /api/conversations/{id}`, `POST /api/conversations/{id}/messages`
+**Feedback** — `POST|GET /api/research/{id}/feedback`
+**Memory** — `GET /api/memory/search`, `/memory/{id}`, `/memory/research/{run_id}`, `POST /api/memory`
+**Evidence** — `GET /api/evidence/research/{run_id}`, `/evidence/claims/{id}`, `/claims/{id}/evidence`, `/claims/{id}/contradictions`, `/evidence/graph/{run_id}`
+**Evolution** — `POST /api/strategy/evolve`, `GET /api/strategy/current`, `/lineage`, `/{id}`
+**Policy** — `GET /api/policy/status`, `POST /api/policy/check`
+**Benchmarks** — `POST /api/benchmark/run`, `GET /api/benchmark/{id}`, `/results`, `POST /api/benchmark/compare`, `GET /api/benchmark/history/list`
+
+## Security
+
+- **Prompt injection**: all retrieved content is scanned and sanitized by `src/security/guard.py` before reaching the LLM, and is passed inside explicit untrusted-content blocks that the system prompt instructs the model to treat as data only.
+- **Policy Engine**: deterministic allow/deny for every sensitive action. `MODIFY_CODE`, `MODIFY_SECURITY`, `MODIFY_POLICY`, `ACCESS_SECRET`, `EXECUTE_HOST_COMMAND` and unknown actions are always denied; no security decision is delegated to an LLM.
+- **Self-evolution boundary**: an explicit field allowlist plus hard safety limits — an evolved strategy can never modify code, policy, or security, nor exceed the global iteration/source caps.
+- **Sandbox**: agent-produced code only ever runs through the Docker sandbox abstraction, never on the host.
+- **Secrets**: never logged, never returned by any endpoint, never included in PDFs or exports.
+
+## Project phases
+
+1. Foundation + LLM adapter · 2. Web search + safe browser · 3. Memory (MySQL + ChromaDB) · 4. Evidence graph · 5. Sandbox + research quality · 6. Autonomous research loop · 7. Self-evolution · 8. Safety/policy engine · 9. Benchmarks + improvement tests · 10. Voice interface / Command Center · Final: configuration, persistence, conversation, final-answer verification, citations, PDF reports, history/export/share, feedback.
+
+## Known limitations
+
+- Voice input requires a Chromium-based browser (Web Speech API); microphone and speech-synthesis behavior cannot be verified headlessly.
+- Research progress uses polling rather than SSE/WebSockets.
+- Verification is deterministic and evidence-linkage based; it detects unsupported claims, fabricated URLs, bad citation markers and source-count mismatches, but does not perform semantic entailment checking of every sentence.
+- The Docker sandbox has no caller in the research pipeline today; it is exercised through the policy layer and its own tests.
+- Real-provider (NVIDIA/Tavily) runs depend on external services and on those services returning absolute URLs — Tavily occasionally returns relative redirect URLs, which the verifier correctly flags as invalid citations.

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pytest -q)"
+      "Bash(pytest -q)",
+      "Bash(OPENBLAS_NUM_THREADS=1 python -m pytest tests/test_final_integration.py -q)"
     ]
   }
 }

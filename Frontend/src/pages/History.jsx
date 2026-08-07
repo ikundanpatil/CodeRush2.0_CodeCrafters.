@@ -1,65 +1,107 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { History as HistoryIcon, Eye, Trash2, PlusCircle, Sparkles, Clock, AlertTriangle } from 'lucide-react';
-import { useResearch } from '../context/ResearchContext';
+import { History as HistoryIcon, Eye, PlusCircle, FileDown, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { researchAPI, reportAPI } from '../services/api';
 import Table from '../components/Table';
 import Button from '../components/Button';
 import Badge from '../components/Badge';
-import Modal from '../components/Modal';
 
+// Part G: real research history from GET /api/research/history. No mock
+// fallback -- if the backend is unreachable the page says so rather than
+// showing fabricated research runs.
 const History = () => {
   const navigate = useNavigate();
-  const { historyList, deleteHistoryItem, setCurrentReport } = useResearch();
-  const [selectedToDelete, setSelectedToDelete] = useState(null);
+  const [rows, setRows] = useState(null);
+  const [error, setError] = useState(null);
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    researchAPI
+      .getResearchHistory()
+      .then((data) => {
+        if (!cancelled) setRows(data);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Research service unavailable -- history could not be loaded.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleDownloadPDF = async (runId) => {
+    setDownloadingId(runId);
+    try {
+      await reportAPI.downloadRunPDF(runId);
+    } catch {
+      setError('Report service unavailable -- the PDF could not be generated.');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const columns = [
     {
-      header: 'Research Topic',
-      accessor: 'topic',
+      header: 'Research Question',
+      accessor: 'question',
       sortable: true,
       render: (row) => (
         <div className="space-y-1">
-          <p className="font-semibold text-slate-200 hover:text-cyan-300 transition-colors line-clamp-1">
-            {row.topic}
-          </p>
+          <p className="font-semibold text-slate-200 line-clamp-1">{row.question}</p>
           <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-            <span>{row.sourcesCount} Sources</span>
-            <span>•</span>
-            <span className="text-cyan-400">{row.depth}</span>
+            <span>{row.source_count} sources</span>
+            <span>&bull;</span>
+            <span>{row.claim_count} claims</span>
+            <span>&bull;</span>
+            <span>{row.iteration_count} iterations</span>
           </div>
         </div>
       ),
     },
     {
       header: 'Date',
-      accessor: 'date',
+      accessor: 'created_at',
       sortable: true,
-      className: 'w-32',
-      render: (row) => <span className="font-mono text-xs text-slate-400">{row.date}</span>,
+      className: 'w-36',
+      render: (row) => (
+        <span className="font-mono text-xs text-slate-400">
+          {new Date(row.created_at).toLocaleString()}
+        </span>
+      ),
     },
     {
       header: 'Status',
       accessor: 'status',
-      className: 'w-32',
+      className: 'w-28',
       render: (row) => (
         <Badge
-          variant={row.status === 'Completed' ? 'success' : row.status === 'In Progress' ? 'cyan' : 'warning'}
-          glow={row.status === 'In Progress'}
+          variant={
+            row.status === 'completed' ? 'success'
+              : row.status === 'failed' ? 'danger'
+                : row.status === 'cancelled' ? 'neutral' : 'cyan'
+          }
+          glow={!['completed', 'failed', 'cancelled'].includes(row.status)}
         >
           {row.status}
         </Badge>
       ),
     },
     {
-      header: 'Duration',
-      accessor: 'duration',
+      header: 'Verified',
+      accessor: 'verification_valid',
       className: 'w-28',
-      render: (row) => (
-        <span className="flex items-center gap-1 text-xs text-slate-400 font-mono">
-          <Clock className="w-3 h-3" />
-          {row.duration}
-        </span>
-      ),
+      render: (row) =>
+        row.verification_valid === null || row.verification_valid === undefined ? (
+          <span className="text-xs text-slate-500">&mdash;</span>
+        ) : (
+          <span
+            className={`flex items-center gap-1 text-xs ${row.verification_valid ? 'text-emerald-400' : 'text-amber-400'}`}
+          >
+            <ShieldCheck className="w-3 h-3" aria-hidden="true" />
+            {row.verification_valid ? 'Verified' : 'Issues'}
+          </span>
+        ),
     },
     {
       header: 'Actions',
@@ -68,20 +110,21 @@ const History = () => {
       render: (row) => (
         <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
           <button
-            onClick={() => {
-              navigate('/report');
-            }}
+            onClick={() => navigate(`/command-center?run=${row.run_id}`)}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
-            title="Open Report"
+            title="Open research session"
+            aria-label={`Open research session for ${row.question}`}
           >
             <Eye className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setSelectedToDelete(row)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors cursor-pointer"
-            title="Delete Record"
+            onClick={() => handleDownloadPDF(row.run_id)}
+            disabled={!row.report_available || downloadingId === row.run_id}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title={row.report_available ? 'Download PDF report' : 'Report not available yet'}
+            aria-label={`Download PDF report for ${row.question}`}
           >
-            <Trash2 className="w-4 h-4" />
+            <FileDown className="w-4 h-4" />
           </button>
         </div>
       ),
@@ -90,7 +133,6 @@ const History = () => {
 
   return (
     <div className="w-full space-y-6 pb-12">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -99,54 +141,28 @@ const History = () => {
             </Badge>
           </div>
           <h1 className="text-2xl font-extrabold text-slate-100">Autonomous Research History</h1>
-          <p className="text-xs text-slate-400">Search and review past agent execution runs and exported whitepapers.</p>
+          <p className="text-xs text-slate-400">Past research runs, with verification status and downloadable reports.</p>
         </div>
 
-        <Button variant="primary" size="md" icon={PlusCircle} onClick={() => navigate('/new-research')}>
+        <Button variant="primary" size="md" icon={PlusCircle} onClick={() => navigate('/command-center')}>
           New Research
         </Button>
       </div>
 
-      {/* Table Component */}
-      <Table columns={columns} data={historyList} searchKey="topic" />
-
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={Boolean(selectedToDelete)}
-        onClose={() => setSelectedToDelete(null)}
-        title="Delete Research Record"
-        footer={
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedToDelete(null)}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => {
-                deleteHistoryItem(selectedToDelete.id);
-                setSelectedToDelete(null);
-              }}
-            >
-              Delete Record
-            </Button>
-          </>
-        }
-      >
-        <div className="flex items-start gap-3 py-2">
-          <div className="p-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400">
-            <AlertTriangle className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-200">
-              Are you sure you want to delete this research record?
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              "{selectedToDelete?.topic}". This action will permanently purge stored embeddings and generated report caches.
-            </p>
-          </div>
+      {error && (
+        <div className="flex items-center gap-2 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2" role="alert">
+          <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+          {error}
         </div>
-      </Modal>
+      )}
+
+      {rows === null && !error ? (
+        <p className="text-sm text-slate-500">Loading research history...</p>
+      ) : rows && rows.length === 0 ? (
+        <p className="text-sm text-slate-500">No research runs yet. Start one from the Command Center.</p>
+      ) : rows ? (
+        <Table columns={columns} data={rows} searchKey="question" />
+      ) : null}
     </div>
   );
 };

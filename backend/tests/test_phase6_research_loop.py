@@ -4,6 +4,7 @@ from typing import Dict, List, Set
 import pytest
 
 from src.browser.base import BrowserError
+from src.citations.builder import build_cited_answer
 from src.engine import research_loop as research_loop_module
 from src.engine.orchestrator import orchestrator
 from src.engine.research_loop import IterationDecision, ResearchLoop
@@ -318,7 +319,8 @@ def test_max_iterations_report_is_clearly_marked_incomplete():
     run.quality_result = {}
     report = ResearchReportLLM(answer="Some answer.", key_findings=[], limitations=[])
 
-    answer = orchestrator._format_answer(run, report, [], [])
+    cited = build_cited_answer([], [], None)
+    answer = orchestrator._format_answer(run, report, [], [], [], cited)
 
     assert "maximum number of iterations" in answer
     assert "not fully verified" in answer.lower() or "preliminary" in answer.lower()
@@ -330,7 +332,8 @@ def test_complete_report_has_no_incomplete_disclaimer():
     run.quality_result = {}
     report = ResearchReportLLM(answer="Some answer.", key_findings=[], limitations=[])
 
-    answer = orchestrator._format_answer(run, report, [], [])
+    cited = build_cited_answer([], [], None)
+    answer = orchestrator._format_answer(run, report, [], [], [], cited)
 
     assert "maximum number of iterations" not in answer
 

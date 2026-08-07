@@ -12,6 +12,7 @@ class RunStatus(str, Enum):
     GENERATING = "generating"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 class EventType(str, Enum):
     STATUS_CHANGE = "status_change"
@@ -93,6 +94,32 @@ class EventType(str, Enum):
     EVOLUTION_POLICY_REJECTED = "evolution_policy_rejected"
     SAFETY_LIMIT_EXCEEDED = "safety_limit_exceeded"
 
+    # Phase 9 - Benchmarks + Improvement Tests events
+    BENCHMARK_STARTED = "benchmark_started"
+    BENCHMARK_COMPLETED = "benchmark_completed"
+    BENCHMARK_QUESTION_STARTED = "benchmark_question_started"
+    BENCHMARK_QUESTION_COMPLETED = "benchmark_question_completed"
+    STRATEGY_COMPARISON_STARTED = "strategy_comparison_started"
+    STRATEGY_COMPARISON_COMPLETED = "strategy_comparison_completed"
+    BENCHMARK_REGRESSION_DETECTED = "benchmark_regression_detected"
+    BENCHMARK_IMPROVEMENT_DETECTED = "benchmark_improvement_detected"
+
+    # Phase 10 - Voice interface / cancellation events
+    RESEARCH_CANCELLED = "research_cancelled"
+
+    # Final Completion Phase - verification, citations, PDF, conversation, feedback
+    # (named FINAL_ANSWER_* to stay distinct from Phase 4's per-claim
+    # VERIFICATION_COMPLETED above -- this is a separate, later-stage check
+    # of the generated answer text itself, not the research process)
+    FINAL_ANSWER_VERIFICATION_STARTED = "final_answer_verification_started"
+    FINAL_ANSWER_VERIFICATION_COMPLETED = "final_answer_verification_completed"
+    FINAL_ANSWER_VERIFICATION_ISSUES_FOUND = "final_answer_verification_issues_found"
+    CITATIONS_BUILT = "citations_built"
+    PDF_GENERATED = "pdf_generated"
+    CONVERSATION_MESSAGE_RECEIVED = "conversation_message_received"
+    CONVERSATION_INTENT_RESOLVED = "conversation_intent_resolved"
+    FEEDBACK_SUBMITTED = "feedback_submitted"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str
@@ -155,6 +182,16 @@ class ResearchRun(BaseModel):
     quality_valid: Optional[bool] = None
     iterations: List[Dict[str, Any]] = Field(default_factory=list)
     research_decision: Optional[str] = None
+    cancel_requested: bool = False
+    verification_result: Dict[str, Any] = Field(default_factory=dict)
+    citations: List[Dict[str, Any]] = Field(default_factory=list)
+    conversation_session_id: Optional[str] = None
+    # Structured report components (Part F/H), kept separate from the fully
+    # formatted `answer` string above so PDF/JSON export never has to
+    # re-parse markdown back into sections.
+    report_summary: Optional[str] = None
+    report_key_findings: List[str] = Field(default_factory=list)
+    report_limitations: List[str] = Field(default_factory=list)
 
 class ResearchPlan(BaseModel):
     """Structured research plan produced by the LLM adapter."""
@@ -189,6 +226,23 @@ class ResearchStatusResponse(BaseModel):
     source_count: int
     error: Optional[str] = None
 
+class ResearchHistoryItem(BaseModel):
+    """Richer history row than ResearchStatusResponse (Part G) -- adds
+    quality/verification/report-availability, all real, none fabricated."""
+    run_id: str
+    question: str
+    status: RunStatus
+    created_at: str
+    updated_at: str
+    source_count: int
+    claim_count: int
+    iteration_count: int
+    quality_valid: Optional[bool] = None
+    verification_valid: Optional[bool] = None
+    report_available: bool = False
+    error: Optional[str] = None
+
+
 class ResearchResultResponse(BaseModel):
     run_id: str
     question: str
@@ -204,3 +258,5 @@ class ResearchResultResponse(BaseModel):
     quality_valid: Optional[bool] = None
     iteration_count: int = 0
     research_decision: Optional[str] = None
+    verification: Dict[str, Any] = Field(default_factory=dict)
+    citations: List[Dict[str, Any]] = Field(default_factory=list)

@@ -16,6 +16,7 @@ import History from './pages/History';
 import KnowledgeBase from './pages/KnowledgeBase';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
+import CommandCenter from './pages/CommandCenter';
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
           {/* Main SaaS Dashboard Routes */}
           <Route element={<MainLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/command-center" element={<CommandCenter />} />
             <Route path="/new-research" element={<NewResearch />} />
             <Route path="/live-research" element={<LiveResearch />} />
             <Route path="/report" element={<Report />} />

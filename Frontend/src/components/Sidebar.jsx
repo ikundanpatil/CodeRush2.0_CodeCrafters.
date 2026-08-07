@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Sparkles,
   Zap,
+  Mic,
 } from 'lucide-react';
 import { useResearch } from '../context/ResearchContext';
 
@@ -23,6 +24,7 @@ const Sidebar = () => {
   const navItems = [
     { name: 'New Research', path: '/new-research', icon: PlusCircle, isCta: true },
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { name: 'Command Center', path: '/command-center', icon: Mic },
     { name: 'Live Agent', path: '/live-research', icon: Zap },
     { name: 'History', path: '/history', icon: HistoryIcon },
     { name: 'Knowledge Base', path: '/knowledge-base', icon: Database },

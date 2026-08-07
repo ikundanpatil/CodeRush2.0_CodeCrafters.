@@ -13,23 +13,46 @@ import {
 } from 'lucide-react';
 import Button from './Button';
 import Badge from './Badge';
+import { reportAPI } from '../services/api';
 
 const ReportCard = ({ report }) => {
   const [exported, setExported] = useState(false);
+  const [pdfError, setPdfError] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
-  const handleDownloadPDF = () => {
-    const element = document.createElement('a');
-    const file = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    element.href = URL.createObjectURL(file);
-    element.download = `${report.topic.toLowerCase().replace(/\s+/g, '_')}_report.json`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+  // Part O: previously this downloaded a JSON blob under a "Download PDF"
+  // label. It now calls the ONE authoritative PDF path -- the real
+  // reportlab-generated PDF from GET /api/research/{run_id}/report/pdf.
+  const handleDownloadPDF = async () => {
+    const runId = report?.run_id;
+    if (!runId) {
+      setPdfError('This report has no research run associated with it yet.');
+      return;
+    }
+    setDownloading(true);
+    setPdfError(null);
+    try {
+      await reportAPI.downloadRunPDF(runId);
+    } catch {
+      setPdfError('Report service unavailable -- the PDF could not be generated.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
-  const handleExport = () => {
-    setExported(true);
-    setTimeout(() => setExported(false), 2500);
+  const handleExport = async () => {
+    const runId = report?.run_id;
+    if (!runId) {
+      setPdfError('This report has no research run associated with it yet.');
+      return;
+    }
+    try {
+      await reportAPI.exportRunJSON(runId);
+      setExported(true);
+      setTimeout(() => setExported(false), 2500);
+    } catch {
+      setPdfError('Export failed -- research service unavailable.');
+    }
   };
 
   return (
@@ -50,13 +73,20 @@ const ReportCard = ({ report }) => {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-3">
-          <Button variant="secondary" size="sm" icon={Share2} onClick={handleExport}>
-            {exported ? 'Link Copied!' : 'Share'}
-          </Button>
-          <Button variant="primary" size="sm" icon={Download} onClick={handleDownloadPDF}>
-            Download PDF
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-3">
+            <Button variant="secondary" size="sm" icon={Share2} onClick={handleExport}>
+              {exported ? 'Exported!' : 'Export JSON'}
+            </Button>
+            <Button variant="primary" size="sm" icon={Download} isLoading={downloading} onClick={handleDownloadPDF}>
+              Download PDF
+            </Button>
+          </div>
+          {pdfError && (
+            <p className="text-xs text-red-400" role="alert">
+              {pdfError}
+            </p>
+          )}
         </div>
       </div>
 

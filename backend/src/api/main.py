@@ -2,12 +2,18 @@ import os
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
+
+# Must be the first src import: loads backend/.env into the process before
+# any other module's module-level os.getenv() calls (several -- memory
+# singletons, provider factories -- run at import time). See src/config.py.
+from src import config as _config
 
 from src.models.schemas import (
     ResearchRun, ResearchCreateRequest, ResearchStatusResponse,
-    ResearchResultResponse, AgentEvent
+    ResearchResultResponse, ResearchHistoryItem, AgentEvent, RunStatus, EventType
 )
 from src.models.memory import (
     Memory, MemorySearchResponse, MemorySearchResponseItem
@@ -24,12 +30,26 @@ from src.policy import rules as policy_rules
 from src.policy.audit import policy_audit_log
 from src.policy.engine import policy_engine
 from src.policy.models import PolicyAction, PolicyRequest, PolicyResult
+from src.benchmark.comparator import strategy_comparator
+from src.benchmark.models import BenchmarkResult, StrategyComparisonResult
+from src.benchmark.runner import get_benchmark_run, list_benchmark_runs, run_and_store_suite
+from src.reports.models import ReportData
+from src.reports.service import report_service
+from src.feedback.models import Feedback
+from src.feedback.service import feedback_service
+from src.conversation.models import ConversationSession
+from src.conversation.service import conversation_service
 
 app = FastAPI(
     title="EvoResearch AE-02 API",
     description="Observable Autonomous Research MVP Phase 1 API",
     version="0.1.0"
 )
+
+try:
+    _config.log_startup_config()
+except Exception as _startup_log_error:  # never let a logging step block startup
+    print(f"Configuration logging failed (non-fatal): {_startup_log_error}")
 
 # Enable CORS for the local frontend (configurable via CORS_ORIGINS, comma-separated)
 _cors_origins = [
@@ -71,6 +91,39 @@ async def create_research_run(payload: ResearchCreateRequest, background_tasks: 
         error=run.error
     )
 
+def _to_history_item(r: ResearchRun) -> ResearchHistoryItem:
+    return ResearchHistoryItem(
+        run_id=r.run_id,
+        question=r.question,
+        status=r.status,
+        created_at=r.created_at,
+        updated_at=r.updated_at,
+        source_count=r.source_count,
+        claim_count=r.claim_count,
+        iteration_count=len(r.iterations),
+        quality_valid=r.quality_valid,
+        verification_valid=(r.verification_result or {}).get("valid"),
+        report_available=r.status == RunStatus.COMPLETED,
+        error=r.error,
+    )
+
+# NOTE: registered BEFORE GET /api/research/{run_id} below -- otherwise
+# that single-dynamic-segment route would greedily match "history" as a
+# run_id (Starlette matches routes in registration order).
+@app.get("/api/research/history", response_model=List[ResearchHistoryItem])
+def get_research_history():
+    """Richer history list (Part G): question, status, quality,
+    verification status, and report availability -- all real, straight
+    from stored ResearchRun data, no mock fallback for production use."""
+    return [_to_history_item(r) for r in store.list_runs()]
+
+@app.get("/api/research/history/{run_id}", response_model=ResearchHistoryItem)
+def get_research_history_item(run_id: str):
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+    return _to_history_item(run)
+
 @app.get("/api/research/{run_id}", response_model=ResearchStatusResponse)
 def get_research_status(run_id: str):
     run = store.get_run(run_id)
@@ -109,6 +162,8 @@ def get_research_result(run_id: str):
         quality_valid=run.quality_valid,
         iteration_count=len(run.iterations),
         research_decision=run.research_decision,
+        verification=run.verification_result,
+        citations=run.citations,
     )
 
 @app.get("/api/research/{run_id}/trace", response_model=List[AgentEvent])
@@ -118,6 +173,70 @@ def get_research_trace(run_id: str):
         raise HTTPException(status_code=404, detail="Research run not found.")
 
     return run.trace
+
+@app.post("/api/research/{run_id}/cancel", response_model=ResearchStatusResponse)
+def cancel_research_run(run_id: str):
+    """Request cancellation of an in-progress research run (Phase 10).
+
+    Cooperative, not forceful: sets a flag on the run that ResearchLoop
+    checks between iterations (see src/engine/research_loop.py) and stops at
+    the next safe checkpoint -- never kills the process or an in-flight
+    request. A no-op (returns current status) if the run has already
+    finished; never errors for that case, only for an unknown run_id."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+
+    if run.status not in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED):
+        run.cancel_requested = True
+        store.save_run(run)
+
+    return ResearchStatusResponse(
+        run_id=run.run_id,
+        question=run.question,
+        status=run.status,
+        current_step=run.current_step,
+        created_at=run.created_at,
+        updated_at=run.updated_at,
+        source_count=run.source_count,
+        error=run.error,
+    )
+
+@app.post("/api/research/{run_id}/report", response_model=ReportData)
+def generate_research_report(run_id: str):
+    """Assembles the structured report for a run (Part F) -- the SAME
+    ReportData the JSON GET below and the PDF endpoint both render from.
+    Idempotent: report data is always derived live from the run, nothing is
+    cached or regenerated by an LLM here."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+    if run.status != RunStatus.COMPLETED:
+        raise HTTPException(status_code=409, detail="Research run has not completed yet.")
+    return report_service.get_report_data(run)
+
+@app.get("/api/research/{run_id}/report", response_model=ReportData)
+def get_research_report(run_id: str):
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+    return report_service.get_report_data(run)
+
+@app.get("/api/research/{run_id}/report/pdf")
+def get_research_report_pdf(run_id: str):
+    """Returns a REAL PDF (reportlab-generated from the run's actual data)
+    with a real application/pdf Content-Type -- never JSON, never a text
+    blob mislabeled as a PDF (see Part O)."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+
+    pdf_bytes = report_service.generate_pdf_bytes(run)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="evoresearch-{run_id}.pdf"'},
+    )
 
 @app.get("/api/history", response_model=List[ResearchStatusResponse])
 def list_research_history():
@@ -135,6 +254,84 @@ def list_research_history():
         )
         for r in runs
     ]
+
+@app.get("/api/research/{run_id}/export/json")
+def export_research_json(run_id: str):
+    """Part H: full research data as a downloadable JSON file -- the same
+    real ResearchResultResponse shape used by the UI, never fabricated,
+    never including secrets (ResearchRun carries no credentials)."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+
+    payload = ResearchResultResponse(
+        run_id=run.run_id, question=run.question, status=run.status, answer=run.answer,
+        sources=run.sources, evidence=run.evidence, security_events=run.security_events,
+        completed_at=run.completed_at, claim_count=run.claim_count,
+        evidence_graph_available=run.evidence_graph_available, quality_result=run.quality_result,
+        quality_valid=run.quality_valid, iteration_count=len(run.iterations),
+        research_decision=run.research_decision, verification=run.verification_result,
+        citations=run.citations,
+    )
+    return Response(
+        content=payload.model_dump_json(indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="evoresearch-{run_id}.json"'},
+    )
+
+@app.get("/api/research/{run_id}/share")
+def share_research_run(run_id: str):
+    """Part H: a sanitized, read-only public view -- question/answer/
+    sources/citations/quality summary only. Never includes internal
+    bookkeeping (memory_context, raw security_events, cancel flags) or
+    anything credential-shaped."""
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+
+    return {
+        "run_id": run.run_id,
+        "question": run.question,
+        "status": run.status,
+        "answer": run.answer,
+        "sources": [{"title": s.title, "url": s.url, "publisher": s.publisher} for s in run.sources],
+        "citations": run.citations,
+        "quality_valid": run.quality_valid,
+        "verification_valid": (run.verification_result or {}).get("valid"),
+        "completed_at": run.completed_at,
+    }
+
+# --------------------------------------------------------------------------
+# Part I - User Feedback / Answer Rating API
+# --------------------------------------------------------------------------
+class FeedbackRequest(BaseModel):
+    helpful: Optional[bool] = None
+    rating: Optional[int] = Field(default=None, ge=1, le=5)
+    comment: Optional[str] = None
+
+@app.post("/api/research/{run_id}/feedback", response_model=Feedback, status_code=status.HTTP_201_CREATED)
+def submit_research_feedback(run_id: str, payload: FeedbackRequest):
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+    if payload.helpful is None and payload.rating is None and not payload.comment:
+        raise HTTPException(status_code=400, detail="Provide at least one of helpful, rating, or comment.")
+
+    feedback = feedback_service.submit(run_id, payload.helpful, payload.rating, payload.comment)
+    run.trace.append(AgentEvent(
+        run_id=run_id, step="Feedback", type=EventType.FEEDBACK_SUBMITTED,
+        title="Feedback Submitted", message="User submitted feedback for this research run.",
+        data={"helpful": payload.helpful, "rating": payload.rating},
+    ))
+    store.save_run(run)
+    return feedback
+
+@app.get("/api/research/{run_id}/feedback", response_model=List[Feedback])
+def get_research_feedback(run_id: str):
+    run = store.get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Research run not found.")
+    return feedback_service.list_for_run(run_id)
 
 # --------------------------------------------------------------------------
 # Phase 3 - Memory API
@@ -359,3 +556,133 @@ def check_policy(payload: PolicyCheckRequest):
         strategy_id=payload.strategy_id, metadata=payload.metadata,
     )
     return policy_engine.evaluate(request)
+
+# --------------------------------------------------------------------------
+# Phase 9 - Benchmarks + Improvement Tests API
+# --------------------------------------------------------------------------
+class BenchmarkRunRequest(BaseModel):
+    strategy_id: Optional[str] = None
+
+class BenchmarkCompareRequest(BaseModel):
+    baseline_run_id: str
+    candidate_run_id: str
+
+@app.post("/api/benchmark/run")
+async def start_benchmark_run(payload: BenchmarkRunRequest = BenchmarkRunRequest()):
+    """Run the fixed offline benchmark suite (10 questions) against a
+    strategy through the real ResearchLoop. Uses the current champion if no
+    strategy_id is given. Synchronous -- offline fixtures make this fast,
+    the same way /api/strategy/evolve is synchronous."""
+    if payload.strategy_id:
+        strategy = get_evolution_store().get(payload.strategy_id)
+        if not strategy:
+            raise HTTPException(status_code=404, detail="Strategy not found.")
+    else:
+        strategy = get_evolution_store().get_champion()
+
+    record = await run_and_store_suite(strategy)
+    return {
+        "benchmark_run_id": record.benchmark_run_id,
+        "status": "completed",
+        "strategy_id": strategy.id,
+        "generation": strategy.generation,
+        "suite": record.suite,
+    }
+
+@app.get("/api/benchmark/{benchmark_run_id}")
+def get_benchmark_run_status(benchmark_run_id: str):
+    record = get_benchmark_run(benchmark_run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Benchmark run not found.")
+    return {
+        "benchmark_run_id": record.benchmark_run_id,
+        "status": "completed",
+        "created_at": record.created_at,
+        "suite": record.suite,
+        "trace": record.trace,
+    }
+
+@app.get("/api/benchmark/{benchmark_run_id}/results", response_model=List[BenchmarkResult])
+def get_benchmark_run_results(benchmark_run_id: str):
+    record = get_benchmark_run(benchmark_run_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Benchmark run not found.")
+    return record.suite.results
+
+@app.post("/api/benchmark/compare", response_model=StrategyComparisonResult)
+def compare_benchmark_runs(payload: BenchmarkCompareRequest):
+    baseline = get_benchmark_run(payload.baseline_run_id)
+    candidate = get_benchmark_run(payload.candidate_run_id)
+    if not baseline:
+        raise HTTPException(status_code=404, detail="baseline_run_id not found.")
+    if not candidate:
+        raise HTTPException(status_code=404, detail="candidate_run_id not found.")
+    return strategy_comparator.compare(baseline.suite, candidate.suite)
+
+@app.get("/api/benchmark/history/list")
+def get_benchmark_history():
+    """Every stored benchmark suite run, oldest first, labeled with the
+    strategy's generation -- backed entirely by real stored results."""
+    history = []
+    for record in list_benchmark_runs():
+        strategy = get_evolution_store().get(record.suite.strategy_id)
+        history.append({
+            "benchmark_run_id": record.benchmark_run_id,
+            "strategy_id": record.suite.strategy_id,
+            "generation": strategy.generation if strategy else None,
+            "average_score": record.suite.average_score,
+            "passed_count": record.suite.passed_count,
+            "benchmark_count": record.suite.benchmark_count,
+            "created_at": record.created_at,
+        })
+    return {"history": history}
+
+# --------------------------------------------------------------------------
+# Part C - Conversational Research API
+# --------------------------------------------------------------------------
+class ConversationCreateRequest(BaseModel):
+    message: str
+
+class ConversationMessageRequest(BaseModel):
+    message: str
+
+@app.post("/api/conversations", response_model=ConversationSession, status_code=status.HTTP_201_CREATED)
+async def create_conversation(payload: ConversationCreateRequest, background_tasks: BackgroundTasks):
+    if not payload.message or not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    def schedule(run_id: str):
+        background_tasks.add_task(orchestrator.execute_run, run_id)
+
+    return await conversation_service.create_session(payload.message.strip(), schedule)
+
+@app.get("/api/conversations", response_model=List[ConversationSession])
+def list_conversations():
+    return conversation_service.list_sessions()
+
+@app.get("/api/conversations/{session_id}", response_model=ConversationSession)
+def get_conversation(session_id: str):
+    session = conversation_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Conversation session not found.")
+    return session
+
+@app.post("/api/conversations/{session_id}/messages", response_model=ConversationSession)
+async def post_conversation_message(session_id: str, payload: ConversationMessageRequest, background_tasks: BackgroundTasks):
+    if not payload.message or not payload.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+
+    def schedule(run_id: str):
+        background_tasks.add_task(orchestrator.execute_run, run_id)
+
+    session, outcome = await conversation_service.add_message(session_id, payload.message.strip(), schedule)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Conversation session not found.")
+    return session
+
+@app.delete("/api/conversations/{session_id}")
+def delete_conversation(session_id: str):
+    deleted = conversation_service.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation session not found.")
+    return {"deleted": True, "session_id": session_id}

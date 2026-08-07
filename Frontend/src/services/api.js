@@ -89,23 +89,117 @@ export const researchAPI = {
       console.error('Failed to fetch research history:', err);
       throw err;
     }
-  }
-};
-
-export const reportAPI = {
-  getReport: async (reportId) => {
+  },
+  // Phase 10 additions -- same "throw on failure, never fabricate" contract
+  // as the calls above (and as policyAPI/benchmarkAPI): the voice UI must
+  // show a real error/placeholder state, never invent a value.
+  cancelResearch: async (runId) => {
     try {
-      return await api.get(`/reports/${reportId}`);
-    } catch {
-      return { id: reportId, title: 'Deep Research Report', confidence: 0.98 };
+      return await api.post(`/research/${runId}/cancel`);
+    } catch (err) {
+      console.error('Failed to cancel research run:', err);
+      throw err;
     }
   },
-  downloadPDF: async (reportId) => {
+  getQuality: async (runId) => {
     try {
-      return await api.get(`/reports/${reportId}/pdf`, { responseType: 'blob' });
-    } catch {
-      return new Blob(['Mock PDF Research Report Content'], { type: 'application/pdf' });
+      return await api.get(`/research/${runId}/quality`);
+    } catch (err) {
+      console.error('Failed to fetch research quality:', err);
+      throw err;
     }
+  },
+  getIterations: async (runId) => {
+    try {
+      return await api.get(`/research/${runId}/iterations`);
+    } catch (err) {
+      console.error('Failed to fetch research iterations:', err);
+      throw err;
+    }
+  },
+  getEvidenceGraph: async (runId) => {
+    try {
+      return await api.get(`/evidence/graph/${runId}`);
+    } catch (err) {
+      console.error('Failed to fetch evidence graph:', err);
+      throw err;
+    }
+  },
+  // Part G: richer history than /history -- includes quality, verification
+  // status and report availability, all real backend values.
+  getResearchHistory: async () => {
+    return await api.get('/research/history');
+  },
+  getResearchHistoryItem: async (runId) => {
+    return await api.get(`/research/history/${runId}`);
+  },
+};
+
+// Triggers a real browser download from an already-fetched Blob.
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+// Part F/H/O: the ONE authoritative report path. The previous
+// `/reports/{id}` + `/reports/{id}/pdf` endpoints never existed on the
+// backend and their catch-blocks fabricated a fake report object and a
+// text blob mislabeled as application/pdf -- both removed. These call the
+// real endpoints and throw (no fake fallback) so the UI can show a real
+// error instead of fake research data.
+export const reportAPI = {
+  getRunReport: async (runId) => {
+    return await api.get(`/research/${runId}/report`);
+  },
+  downloadRunPDF: async (runId) => {
+    const blob = await api.get(`/research/${runId}/report/pdf`, { responseType: 'blob' });
+    downloadBlob(blob, `evoresearch-${runId}.pdf`);
+    return blob;
+  },
+  exportRunJSON: async (runId) => {
+    const data = await api.get(`/research/${runId}/export/json`);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    downloadBlob(blob, `evoresearch-${runId}.json`);
+    return data;
+  },
+  getShareView: async (runId) => {
+    return await api.get(`/research/${runId}/share`);
+  },
+};
+
+// Part C - Conversational research. No mock fallback: a failed call must
+// surface as an error, never as fabricated conversation content.
+export const conversationAPI = {
+  create: async (message) => {
+    return await api.post('/conversations', { message });
+  },
+  list: async () => {
+    return await api.get('/conversations');
+  },
+  get: async (sessionId) => {
+    return await api.get(`/conversations/${sessionId}`);
+  },
+  sendMessage: async (sessionId, message) => {
+    return await api.post(`/conversations/${sessionId}/messages`, { message });
+  },
+  remove: async (sessionId) => {
+    return await api.delete(`/conversations/${sessionId}`);
+  },
+};
+
+// Part I - User feedback / answer rating.
+export const feedbackAPI = {
+  submit: async (runId, { helpful, rating, comment } = {}) => {
+    return await api.post(`/research/${runId}/feedback`, { helpful, rating, comment });
+  },
+  list: async (runId) => {
+    return await api.get(`/research/${runId}/feedback`);
   },
 };
 
@@ -118,6 +212,29 @@ export const policyAPI = {
   },
   check: async (payload) => {
     return await api.post('/policy/check', payload);
+  },
+};
+
+// Phase 9 - Benchmarks + Improvement Tests. No mock fallback, same reasoning
+// as policyAPI: these are measured results, never fabricated placeholders.
+export const benchmarkAPI = {
+  run: async (strategyId) => {
+    return await api.post('/benchmark/run', strategyId ? { strategy_id: strategyId } : {});
+  },
+  getRun: async (benchmarkRunId) => {
+    return await api.get(`/benchmark/${benchmarkRunId}`);
+  },
+  getResults: async (benchmarkRunId) => {
+    return await api.get(`/benchmark/${benchmarkRunId}/results`);
+  },
+  compare: async (baselineRunId, candidateRunId) => {
+    return await api.post('/benchmark/compare', {
+      baseline_run_id: baselineRunId,
+      candidate_run_id: candidateRunId,
+    });
+  },
+  getHistory: async () => {
+    return await api.get('/benchmark/history/list');
   },
 };
 

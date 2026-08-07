@@ -67,6 +67,7 @@ class IterationDecision(str, Enum):
     COMPLETE = "complete"
     FAILED = "failed"
     MAX_ITERATIONS_REACHED = "max_iterations_reached"
+    CANCELLED = "cancelled"
 
 
 class FollowUpQueryPlan(BaseModel):
@@ -146,6 +147,16 @@ class ResearchLoop:
         final_decision = IterationDecision.FAILED
 
         for iteration_number in range(1, self.max_iterations + 1):
+            if self.research_run.cancel_requested:
+                self._emit(
+                    "Research Loop", EventType.RESEARCH_CANCELLED,
+                    "Research Cancelled",
+                    f"Cancellation requested; stopping before iteration {iteration_number}.",
+                    {"iteration": iteration_number},
+                )
+                final_decision = IterationDecision.CANCELLED
+                break
+
             self._emit(
                 "Research Loop", EventType.RESEARCH_ITERATION_STARTED,
                 f"Research Iteration {iteration_number} Started",

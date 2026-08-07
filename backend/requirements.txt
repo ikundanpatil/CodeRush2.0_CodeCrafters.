@@ -23,3 +23,9 @@ openai>=1.0.0
 # Phase 5 - Docker sandbox (shells out to the `docker` CLI, no Python SDK
 # needed) and the research quality validator (stdlib `re` only) -- no extra
 # dependency needed.
+
+# Final Completion Phase - central .env loading for all providers below
+python-dotenv>=1.0.0
+
+# Final Completion Phase - real PDF research reports (Phase F)
+reportlab>=4.0.0
