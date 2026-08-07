@@ -84,6 +84,15 @@ class EventType(str, Enum):
     EVOLUTION_REJECTED = "evolution_rejected"
     EVOLUTION_CYCLE_COMPLETED = "evolution_cycle_completed"
 
+    # Phase 8 - Safety + Policy Engine events
+    POLICY_CHECK_STARTED = "policy_check_started"
+    POLICY_ALLOWED = "policy_allowed"
+    POLICY_DENIED = "policy_denied"
+    POLICY_REVIEW_REQUIRED = "policy_review_required"
+    EVOLUTION_POLICY_CHECKED = "evolution_policy_checked"
+    EVOLUTION_POLICY_REJECTED = "evolution_policy_rejected"
+    SAFETY_LIMIT_EXCEEDED = "safety_limit_exceeded"
+
 class AgentEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     run_id: str

@@ -109,6 +109,18 @@ export const reportAPI = {
   },
 };
 
+// Phase 8 - Safety / Policy Engine. Deliberately has NO mock fallback: this
+// is security status, so if the backend is unreachable the UI must show
+// "unavailable", never a fabricated ALLOW/BLOCK decision.
+export const policyAPI = {
+  getStatus: async () => {
+    return await api.get('/policy/status');
+  },
+  check: async (payload) => {
+    return await api.post('/policy/check', payload);
+  },
+};
+
 export const knowledgeAPI = {
   getKnowledgeItems: async (query = '') => {
     try {

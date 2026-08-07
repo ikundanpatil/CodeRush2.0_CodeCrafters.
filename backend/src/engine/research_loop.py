@@ -30,6 +30,8 @@ from src.llm.base import LLMAdapter
 from src.llm.structured import generate_structured
 from src.models.evidence import Claim
 from src.models.schemas import AgentEvent, EventType, EvidenceRecord, ResearchRun, Source
+from src.policy.engine import policy_engine
+from src.policy.models import PolicyAction, PolicyRequest
 from src.quality.models import ResearchQualityResult
 from src.quality.validator import ResearchQualityValidator, research_quality_validator
 from src.search.base import SearchError, SearchProvider
@@ -307,6 +309,16 @@ class ResearchLoop:
         the whole loop, not just this call."""
         run_id = self.research_run.run_id
 
+        policy_result = policy_engine.evaluate(PolicyRequest(
+            action=PolicyAction.SEARCH, target="web_search", run_id=run_id,
+            parameters={"query_count": len(queries)},
+        ))
+        self._emit(
+            "Policy", EventType.POLICY_ALLOWED if policy_result.decision.value == "ALLOW" else EventType.POLICY_DENIED,
+            f"Policy Check: {PolicyAction.SEARCH.value}", policy_result.reason,
+            {"decision": policy_result.decision.value, "risk": policy_result.risk.value, "policy_rule": policy_result.policy_rule},
+        )
+
         self._emit(
             "Searching", EventType.SEARCH_STARTED, "Web Search Started",
             f"Searching for {len(queries)} quer{'y' if len(queries) == 1 else 'ies'}.",
@@ -335,6 +347,18 @@ class ResearchLoop:
 
         sources: List[Source] = []
         evidences: List[EvidenceRecord] = []
+
+        if raw_results:
+            browse_policy = policy_engine.evaluate(PolicyRequest(
+                action=PolicyAction.BROWSE, target="web_browse", run_id=run_id,
+                parameters={"source_count": len(raw_results[:self.max_sources_per_iteration])},
+            ))
+            self._emit(
+                "Policy",
+                EventType.POLICY_ALLOWED if browse_policy.decision.value == "ALLOW" else EventType.POLICY_DENIED,
+                f"Policy Check: {PolicyAction.BROWSE.value}", browse_policy.reason,
+                {"decision": browse_policy.decision.value, "risk": browse_policy.risk.value, "policy_rule": browse_policy.policy_rule},
+            )
 
         for result in raw_results[:self.max_sources_per_iteration]:
             page_text = result.content
@@ -414,6 +438,17 @@ class ResearchLoop:
     ):
         def evidence_event_sink(event_type: str, title: str, message: str, data=None):
             self._emit("Evidence Graph", EventType(event_type), title, message, data)
+
+        graph_policy = policy_engine.evaluate(PolicyRequest(
+            action=PolicyAction.BUILD_EVIDENCE_GRAPH, target="evidence_graph",
+            run_id=self.research_run.run_id, parameters={"evidence_count": len(evidences)},
+        ))
+        self._emit(
+            "Policy",
+            EventType.POLICY_ALLOWED if graph_policy.decision.value == "ALLOW" else EventType.POLICY_DENIED,
+            f"Policy Check: {PolicyAction.BUILD_EVIDENCE_GRAPH.value}", graph_policy.reason,
+            {"decision": graph_policy.decision.value, "risk": graph_policy.risk.value, "policy_rule": graph_policy.policy_rule},
+        )
 
         return await build_evidence_graph(
             self.llm, self.research_run.run_id, self.research_run.question, evidences, sources,

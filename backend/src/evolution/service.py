@@ -10,13 +10,15 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from src.evolution.evaluator import run_benchmark
-from src.evolution.models import EvolutionCycleResult, Strategy, StrategyStatus
+from src.evolution.models import EvaluationResult, EvolutionCycleResult, Strategy, StrategyStatus
 from src.evolution.mutator import propose_mutation
 from src.evolution.store import EvolutionStore, get_evolution_store
 from src.llm.adapter import get_llm_adapter
 from src.llm.base import LLMAdapter, LLMError
 from src.llm.providers.mock import MockAdapter
 from src.models.schemas import AgentEvent, EventType
+from src.policy.engine import policy_engine
+from src.policy.models import PolicyAction, PolicyDecision, PolicyRequest
 
 
 def _utc_now() -> str:
@@ -79,6 +81,38 @@ class EvolutionService:
             f"Proposed generation {candidate.generation}: {reasoning}",
             {"params": candidate.params.model_dump(), "reasoning": reasoning},
         )
+
+        # Phase 8: candidate must clear the Policy Engine before it is even
+        # benchmarked. A denied candidate can never become champion -- it's
+        # rejected here, before "Test New Strategy" runs at all.
+        policy_result = policy_engine.evaluate(PolicyRequest(
+            action=PolicyAction.EVOLVE_STRATEGY,
+            parameters={"strategy": candidate.params.model_dump()},
+            strategy_id=candidate.id,
+        ))
+        emit(
+            EventType.EVOLUTION_POLICY_CHECKED, "Evolution Policy Checked", policy_result.reason,
+            {"decision": policy_result.decision.value, "risk": policy_result.risk.value, "policy_rule": policy_result.policy_rule},
+        )
+        if policy_result.decision != PolicyDecision.ALLOW:
+            candidate.status = StrategyStatus.REJECTED
+            candidate.score = 0.0
+            self.store.save(candidate)
+
+            decision = "rejected"
+            reason = f"Policy denied candidate strategy: {policy_result.reason}"
+            candidate_eval = EvaluationResult(strategy_id=candidate.id, per_question=[], mean_score=0.0)
+            emit(EventType.EVOLUTION_POLICY_REJECTED, "Candidate Rejected by Policy", reason,
+                 {"policy_rule": policy_result.policy_rule, "generation": candidate.generation})
+            emit(
+                EventType.EVOLUTION_CYCLE_COMPLETED, "Evolution Cycle Completed",
+                f"Cycle finished with decision '{decision}'.", {"decision": decision},
+            )
+            return EvolutionCycleResult(
+                cycle_id=cycle_id, baseline=baseline, baseline_eval=baseline_eval,
+                candidate=candidate, candidate_eval=candidate_eval,
+                decision=decision, reason=reason, trace=trace,
+            )
 
         # 4. Test New Strategy
         candidate_eval = await run_benchmark(candidate, llm)

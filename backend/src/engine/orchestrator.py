@@ -21,6 +21,10 @@ from src.search.factory import get_search_provider
 from src.search.providers.mock import MockSearchProvider
 from src.engine.research_loop import IterationDecision, ResearchLoop
 from src.evolution.store import get_evolution_store
+from src.evolution.models import StrategyParams
+from src.policy.engine import policy_engine
+from src.policy.models import PolicyAction, PolicyDecision, PolicyRequest
+from src.policy import rules as policy_rules
 from src.quality.validator import ResearchQualityValidator
 
 
@@ -128,6 +132,27 @@ class ResearchOrchestrator:
             await self._update_status(run, RunStatus.SEARCHING, "Running autonomous research loop")
 
             champion = get_evolution_store().get_champion()
+
+            # Phase 8 defense in depth: even a stored champion is re-checked
+            # against the current hard safety limits before it's applied to a
+            # real run (normally a no-op -- only policy-approved strategies
+            # can become champion in the first place, see EvolutionService).
+            apply_policy = policy_engine.evaluate(PolicyRequest(
+                action=PolicyAction.APPLY_STRATEGY,
+                parameters={"strategy": champion.params.model_dump()},
+                strategy_id=champion.id, run_id=run_id,
+            ))
+            if apply_policy.decision == PolicyDecision.ALLOW:
+                effective_params = champion.params
+            else:
+                effective_params = StrategyParams(**policy_rules.default_safe_strategy_params())
+                run.trace.append(AgentEvent(
+                    run_id=run_id, step="Policy", type=EventType.SAFETY_LIMIT_EXCEEDED,
+                    title="Strategy Rejected by Policy at Apply Time",
+                    message=f"Champion strategy failed policy re-check; falling back to safe defaults: {apply_policy.reason}",
+                    data={"strategy_id": champion.id, "policy_rule": apply_policy.policy_rule, "reason": apply_policy.reason},
+                ))
+
             run.trace.append(AgentEvent(
                 run_id=run_id,
                 step="Strategy",
@@ -137,7 +162,7 @@ class ResearchOrchestrator:
                 data={
                     "strategy_id": champion.id,
                     "generation": champion.generation,
-                    "params": champion.params.model_dump(),
+                    "params": effective_params.model_dump(),
                 }
             ))
 
@@ -146,14 +171,14 @@ class ResearchOrchestrator:
                 llm=llm,
                 search_provider=search_provider,
                 run=run,
-                max_iterations=champion.params.max_iterations,
+                max_iterations=effective_params.max_iterations,
                 quality_validator=ResearchQualityValidator(
-                    min_sources=champion.params.min_sources,
-                    min_evidence=champion.params.min_evidence,
-                    min_supported_claims=champion.params.min_supported_claims,
+                    min_sources=effective_params.min_sources,
+                    min_evidence=effective_params.min_evidence,
+                    min_supported_claims=effective_params.min_supported_claims,
                 ),
-                max_results_per_query=champion.params.max_results_per_query,
-                max_sources_per_iteration=champion.params.max_sources_per_iteration,
+                max_results_per_query=effective_params.max_results_per_query,
+                max_sources_per_iteration=effective_params.max_sources_per_iteration,
             )
             loop_result = await loop.run(initial_queries=plan.sub_queries or [run.question])
 
@@ -201,6 +226,16 @@ class ResearchOrchestrator:
 
             verified_ok = any(c.status != ClaimStatus.UNVERIFIED for c in claims)
             if verified_ok:
+                store_policy = policy_engine.evaluate(PolicyRequest(
+                    action=PolicyAction.STORE_MEMORY, target="research_memory", run_id=run_id,
+                    parameters={"claim_count": len(claims)},
+                ))
+                run.trace.append(AgentEvent(
+                    run_id=run_id, step="Policy",
+                    type=EventType.POLICY_ALLOWED if store_policy.decision == PolicyDecision.ALLOW else EventType.POLICY_DENIED,
+                    title=f"Policy Check: {PolicyAction.STORE_MEMORY.value}", message=store_policy.reason,
+                    data={"decision": store_policy.decision.value, "risk": store_policy.risk.value, "policy_rule": store_policy.policy_rule},
+                ))
                 try:
                     memory_results = memory_manager.extract_and_store(run)
                     stored_ok = [m for m in memory_results if m.memory is not None]

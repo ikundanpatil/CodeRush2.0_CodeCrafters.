@@ -2,7 +2,8 @@ import os
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from pydantic import BaseModel
+from typing import Any, Dict, List, Optional
 
 from src.models.schemas import (
     ResearchRun, ResearchCreateRequest, ResearchStatusResponse,
@@ -19,6 +20,10 @@ from src.models.evidence import Claim, Evidence, RelationshipType
 from src.evolution.models import EvolutionCycleResult, Strategy
 from src.evolution.service import evolution_service
 from src.evolution.store import get_evolution_store
+from src.policy import rules as policy_rules
+from src.policy.audit import policy_audit_log
+from src.policy.engine import policy_engine
+from src.policy.models import PolicyAction, PolicyRequest, PolicyResult
 
 app = FastAPI(
     title="EvoResearch AE-02 API",
@@ -306,3 +311,51 @@ def get_strategy(strategy_id: str):
     if not strategy:
         raise HTTPException(status_code=404, detail="Strategy not found.")
     return strategy
+
+# --------------------------------------------------------------------------
+# Phase 8 - Safety + Policy Engine API
+# --------------------------------------------------------------------------
+class PolicyCheckRequest(BaseModel):
+    action: str
+    actor: str = "system"
+    target: Optional[str] = None
+    parameters: Dict[str, Any] = {}
+    run_id: Optional[str] = None
+    strategy_id: Optional[str] = None
+    metadata: Dict[str, Any] = {}
+
+@app.get("/api/policy/status")
+def get_policy_status():
+    """Current policy configuration and recent decisions. Never includes
+    secrets -- only hard limits (from config) and decision metadata."""
+    recent = policy_audit_log.recent(limit=20)
+    return {
+        "enabled": policy_rules.policy_engine_enabled(),
+        "limits": policy_rules.safety_limits(),
+        "allowed_evolution_fields": sorted(policy_rules.ALLOWED_EVOLUTION_FIELDS),
+        "recent_decisions": [
+            {
+                "action": e.action, "decision": e.decision, "risk": e.risk,
+                "policy_rule": e.policy_rule, "reason": e.reason, "timestamp": e.timestamp,
+                "run_id": e.run_id, "strategy_id": e.strategy_id,
+            }
+            for e in recent
+        ],
+    }
+
+@app.post("/api/policy/check", response_model=PolicyResult)
+def check_policy(payload: PolicyCheckRequest):
+    """Inspection/testing endpoint: evaluate one policy request and return
+    the decision. Unrecognized action strings are treated as UNKNOWN (denied
+    by default) rather than raising a validation error."""
+    try:
+        action = PolicyAction(payload.action.strip().upper())
+    except ValueError:
+        action = PolicyAction.UNKNOWN
+
+    request = PolicyRequest(
+        action=action, actor=payload.actor, target=payload.target,
+        parameters=payload.parameters, run_id=payload.run_id,
+        strategy_id=payload.strategy_id, metadata=payload.metadata,
+    )
+    return policy_engine.evaluate(request)
