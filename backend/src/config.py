@@ -62,10 +62,18 @@ class Settings:
     def sandbox_enabled(self) -> bool:
         return (_env("SANDBOX_ENABLED", "true") or "true").strip().lower() != "false"
 
-    # -- MySQL ---------------------------------------------------------------
+    # -- Database ------------------------------------------------------------
+    @property
+    def database_url(self) -> Optional[str]:
+        return _env("DATABASE_URL")
+
     @property
     def mysql_configured(self) -> bool:
         return bool(_env("MYSQL_HOST") and _env("MYSQL_USER") and _env("MYSQL_DATABASE"))
+
+    @property
+    def database_configured(self) -> bool:
+        return bool(self.database_url or self.mysql_configured)
 
     # -- Chroma --------------------------------------------------------------
     @property
@@ -85,10 +93,10 @@ settings = Settings()
 def log_startup_config() -> None:
     """Prints which REAL backend is active for each subsystem. Never logs a
     credential -- only provider/backend names, which are not secrets."""
-    from src.memory.mysql_store import get_mysql_store
+    from src.storage.store import store
     from src.memory.chroma_store import chroma_store
 
-    memory_backend = "MySQL" if get_mysql_store().is_mysql_active else "in-memory fallback"
+    db_backend = f"Database backend:    {store.db_backend}"
     vector_backend = "ChromaDB" if chroma_store.is_chroma_active else "in-memory fallback"
 
     lines = [
@@ -97,7 +105,7 @@ def log_startup_config() -> None:
         f"  LLM provider:      {settings.llm_provider}",
         f"  Search provider:   {settings.search_provider}",
         f"  Sandbox provider:  {settings.sandbox_provider if settings.sandbox_enabled else 'disabled'}",
-        f"  Memory backend:    {memory_backend}",
+        f"  {db_backend}",
         f"  Vector backend:    {vector_backend}",
         f"  Policy engine:     {'active' if settings.policy_engine_enabled else 'inactive'}",
         "=" * 60,

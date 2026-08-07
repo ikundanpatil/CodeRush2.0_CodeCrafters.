@@ -47,12 +47,13 @@ def _env(key: str, default=None):
 
 
 class MemoryStore:
-    """Research run store. MySQL primary (durable), in-memory dict is the
+    """Research run store. PostgreSQL / MySQL primary (durable), in-memory dict is the
     live cache every in-flight run is actually mutated through."""
 
     def __init__(self, engine: Optional[Engine] = None, create_tables: bool = True):
         self._runs: Dict[str, ResearchRun] = {}
-        self._mysql_active = False
+        self._db_active = False
+        self._db_backend_name = "in-memory fallback"
         self._engine: Optional[Engine] = None
         self._session_factory: Optional[sessionmaker] = None
 
@@ -62,25 +63,53 @@ class MemoryStore:
 
     # -- engine / connection handling --------------------------------------
     def _build_engine_from_env(self) -> Optional[Engine]:
+        # 1. Check DATABASE_URL (Render PostgreSQL)
+        db_url = _env("DATABASE_URL")
+        if db_url:
+            # Normalize postgres:// or postgresql:// to postgresql+psycopg:// if no driver is specified
+            if db_url.startswith("postgres://"):
+                db_url = "postgresql+psycopg://" + db_url[len("postgres://"):]
+            elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
+                db_url = "postgresql+psycopg://" + db_url[len("postgresql://"):]
+
+            try:
+                engine = create_engine(
+                    db_url,
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    connect_args={"connect_timeout": 5},
+                )
+                self._db_backend_name = "PostgreSQL"
+                return engine
+            except Exception:
+                pass
+
+        # 2. Check local MySQL
         host = _env("MYSQL_HOST")
         port = _env("MYSQL_PORT", "3306")
         user = _env("MYSQL_USER")
         password = _env("MYSQL_PASSWORD")
         database = _env("MYSQL_DATABASE")
-        if not (host and user and database):
-            return None
-        try:
-            return create_engine(
-                f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}",
-                pool_pre_ping=True,
-                pool_recycle=3600,
-                connect_args={"connect_timeout": 3},
-            )
-        except Exception:
-            return None
+        if host and user and database:
+            try:
+                engine = create_engine(
+                    f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}",
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    connect_args={"connect_timeout": 3},
+                )
+                self._db_backend_name = "MySQL"
+                return engine
+            except Exception:
+                pass
+
+        self._db_backend_name = "in-memory fallback"
+        return None
 
     def _try_connect(self, engine: Optional[Engine], create_tables: bool):
         if engine is None:
+            self._db_active = False
+            self._db_backend_name = "in-memory fallback"
             return
         try:
             from sqlalchemy import text as sa_text
@@ -91,16 +120,29 @@ class MemoryStore:
                 Base.metadata.create_all(engine)
             self._engine = engine
             self._session_factory = sessionmaker(bind=engine)
-            self._mysql_active = True
+            self._db_active = True
+            if self._db_backend_name == "in-memory fallback":
+                # Engine was passed in explicitly (e.g. SQLite in tests)
+                self._db_backend_name = engine.dialect.name.capitalize()
         except Exception:
-            self._mysql_active = False
+            self._db_active = False
+            self._db_backend_name = "in-memory fallback"
 
     @property
     def is_mysql_active(self) -> bool:
-        return self._mysql_active
+        """Maintained for backward-compatibility with tests / code checking DB status."""
+        return self._db_active
+
+    @property
+    def is_db_active(self) -> bool:
+        return self._db_active
+
+    @property
+    def db_backend(self) -> str:
+        return self._db_backend_name if self._db_active else "in-memory fallback"
 
     def ping(self) -> bool:
-        return self._mysql_active
+        return self._db_active
 
     # -- serialization -------------------------------------------------------
     def _record_from_run(self, run: ResearchRun) -> ResearchRunRecord:
@@ -116,8 +158,8 @@ class MemoryStore:
     def _run_from_record(self, record: ResearchRunRecord) -> ResearchRun:
         return ResearchRun.model_validate(record.data)
 
-    def _persist_to_mysql(self, run: ResearchRun) -> None:
-        if not self._mysql_active:
+    def _persist_to_db(self, run: ResearchRun) -> None:
+        if not self._db_active:
             return
         try:
             with self._session_factory() as session:
@@ -128,8 +170,8 @@ class MemoryStore:
             # live source of truth for the current process either way.
             pass
 
-    def _load_from_mysql(self, run_id: str) -> Optional[ResearchRun]:
-        if not self._mysql_active:
+    def _load_from_db(self, run_id: str) -> Optional[ResearchRun]:
+        if not self._db_active:
             return None
         try:
             with self._session_factory() as session:
@@ -138,8 +180,8 @@ class MemoryStore:
         except Exception:
             return None
 
-    def _list_from_mysql(self) -> List[ResearchRun]:
-        if not self._mysql_active:
+    def _list_from_db(self) -> List[ResearchRun]:
+        if not self._db_active:
             return []
         try:
             with self._session_factory() as session:
@@ -156,21 +198,21 @@ class MemoryStore:
     def save_run(self, run: ResearchRun):
         run.updated_at = datetime.now(timezone.utc).isoformat()
         self._runs[run.run_id] = run
-        self._persist_to_mysql(run)
+        self._persist_to_db(run)
 
     def get_run(self, run_id: str) -> Optional[ResearchRun]:
         if run_id in self._runs:
             return self._runs[run_id]
-        loaded = self._load_from_mysql(run_id)
+        loaded = self._load_from_db(run_id)
         if loaded is not None:
             self._runs[run_id] = loaded
         return loaded
 
     def list_runs(self) -> List[ResearchRun]:
-        by_id: Dict[str, ResearchRun] = {r.run_id: r for r in self._list_from_mysql()}
+        by_id: Dict[str, ResearchRun] = {r.run_id: r for r in self._list_from_db()}
         # The in-memory cache wins for any run currently live in this
         # process (freshest state, e.g. mid-run trace events not yet
-        # written through), and covers runs MySQL doesn't have (fallback
+        # written through), and covers runs DB doesn't have (fallback
         # mode, or a write that failed silently).
         by_id.update(self._runs)
         return sorted(by_id.values(), key=lambda r: r.created_at, reverse=True)
