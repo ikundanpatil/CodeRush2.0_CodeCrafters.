@@ -3,170 +3,183 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Activity,
-  Globe,
-  BookOpen,
+  Database,
   Terminal,
   FileText,
-  Pause,
-  Play,
+  Square,
+  PlusCircle,
 } from 'lucide-react';
-import GithubIcon from '../components/GithubIcon';
 import { useResearch } from '../context/ResearchContext';
+import { researchAPI } from '../services/api';
 import Button from '../components/Button';
 import Badge from '../components/Badge';
 import Loader from '../components/Loader';
 
+const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+
+const STATUS_LABELS = {
+  queued: 'Queued',
+  planning: 'Planning',
+  searching: 'Searching',
+  analyzing: 'Analyzing',
+  generating: 'Generating Report',
+  completed: 'Completed',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+};
+
+function eventTone(type = '') {
+  if (type.includes('error') || type.includes('failed') || type.includes('contradiction')) return 'text-red-400';
+  if (type.includes('search') || type.includes('browser')) return 'text-sky-300';
+  if (type.includes('verification') || type.includes('quality')) return 'text-emerald-400';
+  if (type.includes('planning')) return 'text-cyan-300';
+  return 'text-slate-300';
+}
+
 const LiveResearch = () => {
   const navigate = useNavigate();
-  const { activeResearch } = useResearch();
-  const [isPaused, setIsPaused] = useState(false);
+  const { activeResearch, activeRunId, runStatus, runError, liveSteps, liveTrace, runSourceCount } = useResearch();
+  const [cancelling, setCancelling] = useState(false);
 
-  // Simulated live console log entries
-  const [consoleLogs] = useState([
-    '[12:44:00] INFO: Initialized 8-node cognitive agent swarm.',
-    '[12:44:05] PLANNER: Decomposed topic into 6 targeted research sub-vectors.',
-    '[12:44:12] SEARCH: Querying Google & Bing API... 42 URLs retrieved.',
-    '[12:44:20] SCRAPER: Extracting markdown from openai.com/research.',
-    '[12:44:35] GITHUB: AST parsing github.com/langchain-ai/langchain (Stars: 92k).',
-    '[12:44:48] ARXIV: Ingesting preprint 2401.09823.pdf [cs.AI].',
-    '[12:45:05] REFLECTION: Contradiction check across 14 sources... PASS.',
-    '[12:45:20] DATA: Computing side-by-side performance matrix...',
-  ]);
+  const isActive = Boolean(activeRunId) && !TERMINAL_STATUSES.has(runStatus);
+  const isCompleted = runStatus === 'completed';
+  const completedSteps = liveSteps.filter((s) => s.status === 'completed').length;
+  const progressPercent = Math.round((completedSteps / liveSteps.length) * 100);
+  const activeStep = liveSteps.find((s) => s.status === 'active');
 
-  const websitesScanned = [
-    { title: 'OpenAI Research', url: 'https://openai.com/research', status: 'Parsed', score: '99%' },
-    { title: 'GitHub Blog', url: 'https://github.blog', status: 'Parsed', score: '97%' },
-    { title: 'ArXiv Org AI', url: 'https://arxiv.org/abs/2401.09823', status: 'Ingested', score: '98%' },
-    { title: 'TechCrunch Enterprise', url: 'https://techcrunch.com', status: 'Parsed', score: '94%' },
-  ];
+  const handleCancel = async () => {
+    if (!activeRunId || cancelling) return;
+    setCancelling(true);
+    try {
+      await researchAPI.cancelResearch(activeRunId);
+    } catch {
+      // Surfaced via runError on the next poll tick if it actually failed server-side.
+    } finally {
+      setCancelling(false);
+    }
+  };
 
-  const repositoriesParsed = [
-    { name: 'langchain-ai/langchain', language: 'Python', stars: '94.2k', status: 'AST Audited' },
-    { name: 'Significant-Gravitas/AutoGPT', language: 'Python', stars: '168k', status: 'Benchmark Parsed' },
-    { name: 'vllm-project/vllm', language: 'C++', stars: '28.5k', status: 'Latency Verified' },
-  ];
-
-  const papersProcessed = [
-    { title: 'Attention Is All You Need', authors: 'Vaswani et al.', year: '2017', citations: '120k' },
-    { title: 'SWE-bench: Evaluating Language Models on Real-World GitHub Issues', authors: 'Jimenez et al.', year: '2024', citations: '1.4k' },
-    { title: 'Self-Consistency Improves Chain of Thought Reasoning', authors: 'Wang et al.', year: '2023', citations: '3.8k' },
-  ];
+  if (!activeRunId) {
+    return (
+      <div className="w-full flex flex-col items-center justify-center text-center gap-4 py-24 bg-white border border-slate-200 rounded-[20px] shadow-sm">
+        <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+          <Activity className="w-8 h-8 text-slate-400" />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">No research is currently running</h2>
+          <p className="text-sm text-slate-500 mt-1">Start a new autonomous research task to see it live here.</p>
+        </div>
+        <Button variant="primary" icon={PlusCircle} onClick={() => navigate('/new-research')}>
+          Start New Research
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full space-y-6 pb-12">
       {/* Header Banner */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm backdrop-blur-md">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <Badge variant="cyan" glow icon={Activity}>
-              Autonomous Agent Live Console
+            <Badge variant={isCompleted ? 'success' : runStatus === 'failed' ? 'danger' : 'cyan'} glow icon={Activity}>
+              {STATUS_LABELS[runStatus] || 'Autonomous Agent Live Console'}
             </Badge>
-            <span className="text-xs text-slate-500 font-mono">Run ID: #res_99847</span>
+            <span className="text-xs text-slate-500 font-mono">Run ID: {activeRunId.slice(0, 8)}</span>
           </div>
           <h1 className="text-xl md:text-2xl font-bold text-slate-900">{activeResearch.topic}</h1>
           <p className="text-xs text-slate-500">
             Goal: <span className="text-slate-700 font-semibold">{activeResearch.goal}</span> • Depth: <span className="text-sky-600 font-semibold">{activeResearch.depth}</span>
           </p>
+          {runError && (
+            <p className="text-xs text-red-600" role="alert">
+              {runError}
+            </p>
+          )}
         </div>
 
         {/* Control Buttons */}
         <div className="flex items-center gap-3">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={isPaused ? Play : Pause}
-            onClick={() => setIsPaused(!isPaused)}
-          >
-            {isPaused ? 'Resume Agent' : 'Pause Swarm'}
-          </Button>
+          {isActive && (
+            <Button variant="secondary" size="sm" icon={Square} isLoading={cancelling} onClick={handleCancel}>
+              Stop Research
+            </Button>
+          )}
           <Button
             variant="primary"
             size="sm"
             icon={FileText}
+            disabled={!isCompleted}
             onClick={() => navigate('/report')}
           >
-            View Generated Report
+            {isCompleted ? 'View Generated Report' : 'Report available when complete'}
           </Button>
         </div>
       </div>
 
-      {/* Grid Layout: Left Timeline & Live Cards, Right Console Feed */}
+      {/* Grid Layout: Left Progress & Live Cards, Right Console Feed */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* LEFT COLUMN: Timeline & Discovery Cards */}
+        {/* LEFT COLUMN: Progress & Live Stats */}
         <div className="lg:col-span-7 space-y-6">
           {/* Animated Loader Header */}
-          <div className="p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm flex items-center justify-between">
+          <div className="p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <Loader size="sm" text="" />
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Swarm Executive Planner Running</h3>
-                <p className="text-xs text-slate-500">Executing Step 6 of 8: Data Analysis & Graph Matrix</p>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {isCompleted ? 'Research Complete' : 'Swarm Executive Planner Running'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {activeStep ? activeStep.description : isCompleted ? 'All pipeline steps finished.' : 'Waiting for the first status update…'}
+                </p>
               </div>
             </div>
-            <Badge variant="success" glow>
-              98.4% Precision
+            <Badge variant={isCompleted ? 'success' : 'cyan'} glow>
+              {progressPercent}% Done
             </Badge>
           </div>
 
-          {/* Live Discovery Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Scanned Websites */}
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2">
-                <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-sky-600" /> Scanned Web
-                </span>
-                <span className="text-[10px] text-sky-600 font-mono">4 URLs</span>
-              </div>
-              <div className="space-y-2">
-                {websitesScanned.map((web, idx) => (
-                  <div key={idx} className="text-[11px] flex items-center justify-between">
-                    <span className="text-slate-600 truncate max-w-[100px]">{web.title}</span>
-                    <span className="text-[10px] text-emerald-600 font-mono">{web.score}</span>
-                  </div>
-                ))}
-              </div>
+          {/* Progress Bar */}
+          <div className="p-4 rounded-[20px] bg-white border border-slate-200 shadow-sm space-y-2">
+            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
+              <div
+                className="bg-slate-900 h-full rounded-full transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
-
-            {/* Repositories */}
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2">
-                <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <GithubIcon className="w-3.5 h-3.5 text-indigo-500" /> GitHub Repos
-                </span>
-                <span className="text-[10px] text-indigo-500 font-mono">3 Repos</span>
-              </div>
-              <div className="space-y-2">
-                {repositoriesParsed.map((repo, idx) => (
-                  <div key={idx} className="text-[11px] flex items-center justify-between">
-                    <span className="text-slate-600 truncate max-w-[100px]">{repo.name.split('/')[1]}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">★ {repo.stars}</span>
-                  </div>
-                ))}
-              </div>
+            <div className="flex items-center justify-between text-xs text-slate-500">
+              <span className="flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5" /> {runSourceCount} source{runSourceCount === 1 ? '' : 's'} found so far
+              </span>
+              <span className="font-mono">{STATUS_LABELS[runStatus] || '—'}</span>
             </div>
+          </div>
 
-            {/* Papers */}
-            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-              <div className="flex items-center justify-between text-xs border-b border-slate-200 pb-2">
-                <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5 text-emerald-600" /> ArXiv Papers
-                </span>
-                <span className="text-[10px] text-emerald-600 font-mono">3 Papers</span>
-              </div>
-              <div className="space-y-2">
-                {papersProcessed.map((paper, idx) => (
-                  <div key={idx} className="text-[11px] flex items-center justify-between">
-                    <span className="text-slate-600 truncate max-w-[100px]">{paper.title}</span>
-                    <span className="text-[10px] text-slate-500 font-mono">{paper.year}</span>
-                  </div>
-                ))}
-              </div>
+          {/* Pipeline Step List */}
+          <div className="p-4 rounded-[20px] bg-white border border-slate-200 shadow-sm">
+            <div className="space-y-3">
+              {liveSteps.map((step) => (
+                <div key={step.id} className="flex items-center gap-3 text-xs">
+                  <span
+                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                      step.status === 'completed'
+                        ? 'bg-emerald-500'
+                        : step.status === 'active'
+                          ? 'bg-slate-900 animate-pulse'
+                          : 'bg-slate-200'
+                    }`}
+                  />
+                  <span className={`flex-1 ${step.status === 'pending' ? 'text-slate-400' : 'text-slate-700 font-medium'}`}>
+                    {step.name}
+                  </span>
+                  <span className="text-slate-400 font-mono">{step.timestamp}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Terminal Log Feed */}
+        {/* RIGHT COLUMN: Terminal Log Feed -- real AgentEvent trace */}
         <div className="lg:col-span-5 flex flex-col h-[500px] bg-slate-900 border border-slate-800 rounded-[20px] p-4 shadow-lg overflow-hidden font-mono text-xs">
           <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
             <span className="flex items-center gap-2 text-cyan-400 font-bold">
@@ -180,30 +193,28 @@ const LiveResearch = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-2 text-slate-300 pr-2">
-            {consoleLogs.map((log, idx) => (
+            {liveTrace.length === 0 && (
+              <p className="text-slate-500">Waiting for the first agent event…</p>
+            )}
+            {liveTrace.map((event) => (
               <motion.div
-                key={idx}
+                key={event.event_id}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.2 }}
                 className="leading-relaxed hover:bg-slate-900/80 p-1 rounded transition-colors"
               >
-                {log.includes('INFO') ? (
-                  <span className="text-blue-400">{log}</span>
-                ) : log.includes('PLANNER') ? (
-                  <span className="text-cyan-300">{log}</span>
-                ) : log.includes('REFLECTION') ? (
-                  <span className="text-emerald-400 font-semibold">{log}</span>
-                ) : (
-                  <span className="text-slate-300">{log}</span>
-                )}
+                <span className={eventTone(event.type)}>
+                  [{new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}]{' '}
+                  {event.title}: {event.message}
+                </span>
               </motion.div>
             ))}
           </div>
 
           <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Status: Streaming Logs</span>
-            <span className="text-emerald-400 animate-pulse">● Live Telemetry</span>
+            <span>Status: {isActive ? 'Streaming Logs' : isCompleted ? 'Run Finished' : 'Stopped'}</span>
+            {isActive && <span className="text-emerald-400 animate-pulse">● Live Telemetry</span>}
           </div>
         </div>
       </div>

@@ -1,10 +1,98 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { agentSteps, sampleChatHistory, researchHistory, knowledgeItems, aiModels, mockReport } from '../utils/dummyData';
 import { researchAPI, conversationAPI } from '../services/api';
+import { useSpeechSynthesis } from '../hooks/useSpeechSynthesis';
 
 const ResearchContext = createContext();
 
+/** First 2 sentences (or ~280 chars) of a real answer -- spoken aloud so a
+ * long research answer doesn't turn into a multi-minute monologue. The
+ * full text always stays readable in the chat bubble itself. */
+function buildSpokenChatSummary(answer) {
+  if (!answer) return '';
+  const sentences = answer.match(/[^.!?]+[.!?]+/g) || [answer];
+  let summary = sentences.slice(0, 2).join(' ').trim();
+  if (summary.length > 280) summary = summary.slice(0, 280).trim() + '…';
+  return summary;
+}
+
+/** ~200wpm reading-time estimate from real answer text -- never a made-up number. */
+function computeReadingTime(text) {
+  if (!text) return '< 1 min read';
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const mins = Math.max(1, Math.round(words / 200));
+  return `${mins} min read`;
+}
+
+/** Key Findings, built from the REAL verification result (verified /
+ * contradicted / unsupported claims) rather than raw scraped evidence
+ * passages. Falls back to top source titles only if no claims were
+ * extracted at all (e.g. a very shallow run). */
+function buildFindings(resultRes) {
+  const v = resultRes?.verification || {};
+  const groups = [
+    ...(v.verified_claims || []).map((c) => ({
+      heading: c.claim_text,
+      content: `Supported by ${c.supporting_count ?? 0} source(s).`,
+    })),
+    ...(v.contradicted_claims || []).map((c) => ({
+      heading: c.claim_text,
+      content: `Mixed/contradicted evidence — ${c.supporting_count ?? 0} supporting, ${c.contradicting_count ?? 0} contradicting source(s).`,
+    })),
+    ...(v.unsupported_claims || []).map((c) => ({
+      heading: c.claim_text || String(c),
+      content: 'Not yet supported by collected evidence.',
+    })),
+  ];
+  if (groups.length) return groups;
+  return (resultRes?.sources || []).slice(0, 5).map((s) => ({
+    heading: s.title,
+    content: s.description || 'Relevant source identified during research.',
+  }));
+}
+
+/** Recommendations synthesized from real quality-check errors and
+ * verification reasons -- never invented advice. */
+function buildRecommendations(resultRes) {
+  const recs = [];
+  const q = resultRes?.quality_result || {};
+  const v = resultRes?.verification || {};
+  if (q.valid === false) (q.errors || []).forEach((e) => recs.push(`Address: ${e}`));
+  (v.reasons || []).forEach((r) => {
+    if (!recs.includes(r)) recs.push(r);
+  });
+  if (recs.length === 0) {
+    recs.push('This research met all quality and verification requirements — no further action needed.');
+  }
+  return recs;
+}
+
+/** References list from real backend citations (preferred, numbered and
+ * deduplicated) with a fallback to the raw source list if citations are
+ * empty (e.g. answer generation produced no inline citations). */
+function buildReferences(resultRes) {
+  const sources = resultRes?.sources || [];
+  if (Array.isArray(resultRes?.citations) && resultRes.citations.length) {
+    return resultRes.citations.map((c) => {
+      const src = sources.find((s) => s.url === c.url);
+      return {
+        title: c.title,
+        link: c.url,
+        source: c.publisher || 'Web',
+        rating: src?.relevance != null ? `${Math.round(src.relevance * 100)}%` : 'Cited',
+      };
+    });
+  }
+  return sources.map((s) => ({
+    title: s.title,
+    link: s.url,
+    source: s.publisher || 'Web',
+    rating: s.relevance != null ? `${Math.round(s.relevance * 100)}%` : 'N/A',
+  }));
+}
+
 export const ResearchProvider = ({ children }) => {
+  const { speak } = useSpeechSynthesis();
   const [selectedModel, setSelectedModel] = useState(aiModels[0]);
   const [activeResearch, setActiveResearch] = useState({
     topic: 'Self-Evolving Autonomous Research Agent Systems',
@@ -13,6 +101,11 @@ export const ResearchProvider = ({ children }) => {
     sources: ['Websites', 'GitHub', 'Research Papers', 'News', 'Documentation'],
     outputFormat: 'Report',
   });
+  // Always-current ref so the poll effect below can read the latest depth
+  // without needing activeResearch in its dependency array (which would
+  // otherwise restart the polling interval on every unrelated change).
+  const activeResearchRef = useRef(activeResearch);
+  activeResearchRef.current = activeResearch;
   const [liveSteps, setLiveSteps] = useState(agentSteps);
   const [chatMessages, setChatMessages] = useState(sampleChatHistory);
   const [historyList, setHistoryList] = useState(researchHistory);
@@ -45,6 +138,11 @@ export const ResearchProvider = ({ children }) => {
   // Possible values: null | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
   const [runStatus, setRunStatus] = useState(null);
   const [runError, setRunError] = useState(null);
+  // Real-time telemetry for the Live Agent page: actual backend event
+  // trace and live source count -- both come straight from the same
+  // GET /api/research/{run_id} and /trace calls already being polled.
+  const [liveTrace, setLiveTrace] = useState([]);
+  const [runSourceCount, setRunSourceCount] = useState(0);
 
   // Poll backend run status when activeRunId is set.
   // Flow:
@@ -66,6 +164,17 @@ export const ResearchProvider = ({ children }) => {
         const status = statusRes?.status;
         setRunStatus(status);
         setRunError(statusRes?.error || null);
+        setRunSourceCount(typeof statusRes?.source_count === 'number' ? statusRes.source_count : 0);
+
+        // Live telemetry trace -- real AgentEvent log, polled throughout
+        // the run (not just once at the end) so the Live Agent page can
+        // show a real, growing console instead of canned log lines.
+        researchAPI
+          .getTrace(activeRunId)
+          .then((trace) => {
+            if (Array.isArray(trace)) setLiveTrace(trace);
+          })
+          .catch(() => {});
 
         // Drive the Agent Workflow Pipeline card from the REAL run status
         // instead of the frozen dummy step list. STATUS_ORDER mirrors the
@@ -107,28 +216,33 @@ export const ResearchProvider = ({ children }) => {
             // Step 2: GET /api/research/{run_id}/result — only when completed
             try {
               const resultRes = await researchAPI.getResult(activeRunId);
-              // Trace is consumed by useResearchSession hook; no direct use here.
-              await researchAPI.getTrace(activeRunId).catch(() => []);
 
               if (resultRes?.answer) {
+                const v = resultRes.verification || {};
+                // Real confidence: the backend's own verification score
+                // (0..1) when available, otherwise a conservative estimate
+                // from quality_valid -- never a fixed made-up number.
+                const confidence =
+                  typeof v.score === 'number' ? v.score : resultRes.quality_valid ? 0.9 : 0.5;
+
                 setCurrentReport({
-                  id: activeRunId,
+                  run_id: activeRunId,
                   title: statusRes.question,
+                  subtitle: 'Autonomous Deep Research Report',
+                  date: new Date(resultRes.completed_at || Date.now()).toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  }),
                   executiveSummary: resultRes.answer,
-                  keyFindings: Array.isArray(resultRes.evidence)
-                    ? resultRes.evidence.map(e => e.claim || e.passage).filter(Boolean)
-                    : [],
-                  methodology:
-                    'Multi-agent search, security boundary scanning, evidence normalization.',
-                  sources: Array.isArray(resultRes.sources)
-                    ? resultRes.sources.map(s => ({
-                        title: s.title,
-                        url: s.url,
-                        relevance: s.relevance != null ? `${Math.round(s.relevance * 100)}%` : 'N/A',
-                      }))
-                    : [],
-                  confidenceScore: 0.98,
-                  generatedAt: resultRes.completed_at || new Date().toISOString(),
+                  confidenceScore: Math.round(confidence * 100),
+                  citationCount: Array.isArray(resultRes.sources) ? resultRes.sources.length : 0,
+                  readingTime: computeReadingTime(resultRes.answer),
+                  depth: activeResearchRef.current.depth || 'Expert',
+                  findings: buildFindings(resultRes),
+                  comparisonTable: null,
+                  recommendations: buildRecommendations(resultRes),
+                  references: buildReferences(resultRes),
                 });
               }
             } catch (resultErr) {
@@ -321,6 +435,9 @@ export const ResearchProvider = ({ children }) => {
                 : [],
             },
           ]);
+
+          const spoken = buildSpokenChatSummary(resultRes?.answer);
+          if (spoken) speak(spoken);
         })
         .catch((e) => {
           setChatMessages((prev) => [
@@ -354,7 +471,7 @@ export const ResearchProvider = ({ children }) => {
         },
       ]);
     }
-  }, [runStatus, activeRunId, pendingChatRunId, runError]);
+  }, [runStatus, activeRunId, pendingChatRunId, runError, speak]);
 
   const deleteHistoryItem = (id) => {
     setHistoryList((prev) => prev.filter((item) => item.id !== id));
@@ -398,6 +515,8 @@ export const ResearchProvider = ({ children }) => {
         activeRunId,
         runStatus,   // 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | null
         runError,    // string | null
+        liveTrace,   // AgentEvent[] -- real backend trace, polled live
+        runSourceCount, // number -- real, live source count from the backend
       }}
     >
       {children}
