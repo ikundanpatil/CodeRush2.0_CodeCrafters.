@@ -1,7 +1,97 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Brain, User, Copy, Check, ExternalLink, ShieldCheck, ChevronDown, ChevronUp, Sparkles } from 'lucide-react';
 import Badge from './Badge';
 
+/* ── Markdown renderer components ─────────────────────────────────────── */
+const mdComponents = {
+  // Headings
+  h1: ({ children }) => (
+    <h1 className="text-lg font-bold text-white mt-3 mb-1.5 border-b border-slate-700 pb-1">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-base font-semibold text-cyan-300 mt-3 mb-1">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-sm font-semibold text-slate-200 mt-2 mb-0.5">{children}</h3>
+  ),
+
+  // Paragraphs
+  p: ({ children }) => (
+    <p className="mb-2 last:mb-0 leading-relaxed text-slate-100">{children}</p>
+  ),
+
+  // Bold & italic
+  strong: ({ children }) => (
+    <strong className="font-semibold text-white">{children}</strong>
+  ),
+  em: ({ children }) => (
+    <em className="italic text-slate-300">{children}</em>
+  ),
+
+  // Ordered / unordered lists
+  ul: ({ children }) => (
+    <ul className="list-disc list-inside space-y-1 my-2 pl-2 text-slate-200">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="list-decimal list-inside space-y-1 my-2 pl-2 text-slate-200">{children}</ol>
+  ),
+  li: ({ children }) => (
+    <li className="leading-relaxed marker:text-cyan-400">{children}</li>
+  ),
+
+  // Inline code
+  code: ({ inline, children }) =>
+    inline ? (
+      <code className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono text-[12px] border border-slate-700">
+        {children}
+      </code>
+    ) : (
+      <code className="block">{children}</code>
+    ),
+
+  // Code blocks
+  pre: ({ children }) => (
+    <pre className="my-3 p-3 rounded-xl bg-slate-900 border border-slate-700 overflow-x-auto font-mono text-[12px] text-slate-200 leading-relaxed">
+      {children}
+    </pre>
+  ),
+
+  // Blockquote
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 pl-3 border-l-2 border-cyan-500 text-slate-400 italic">{children}</blockquote>
+  ),
+
+  // Horizontal rule
+  hr: () => <hr className="my-3 border-slate-700" />,
+
+  // Links
+  a: ({ href, children }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors"
+    >
+      {children}
+    </a>
+  ),
+
+  // Tables (GFM)
+  table: ({ children }) => (
+    <div className="my-3 overflow-x-auto rounded-xl border border-slate-700">
+      <table className="w-full text-xs text-slate-200">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-slate-800 text-slate-300 font-semibold">{children}</thead>,
+  tbody: ({ children }) => <tbody className="divide-y divide-slate-700/60">{children}</tbody>,
+  tr: ({ children }) => <tr className="hover:bg-slate-800/40 transition-colors">{children}</tr>,
+  th: ({ children }) => <th className="px-3 py-2 text-left text-cyan-300">{children}</th>,
+  td: ({ children }) => <td className="px-3 py-2">{children}</td>,
+};
+
+/* ── Component ─────────────────────────────────────────────────────────── */
 const ChatBubble = ({ message }) => {
   const isAi = message.sender === 'ai';
   const [copied, setCopied] = useState(false);
@@ -42,13 +132,21 @@ const ChatBubble = ({ message }) => {
 
         {/* Text Content Box */}
         <div
-          className={`p-4 md:p-5 rounded-[16px] text-sm leading-relaxed shadow-lg ${
+          className={`p-4 md:p-5 rounded-[16px] text-sm shadow-lg ${
             isAi
               ? 'bg-[#1E293B] border border-slate-700/80 text-slate-100 rounded-tl-none'
-              : 'bg-blue-600 text-white rounded-tr-none font-normal'
+              : 'bg-blue-600 text-white rounded-tr-none font-normal leading-relaxed'
           }`}
         >
-          <div className="whitespace-pre-line font-sans">{message.text}</div>
+          {isAi ? (
+            /* ── Rendered markdown for AI messages ── */
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+              {message.text}
+            </ReactMarkdown>
+          ) : (
+            /* ── Plain text for user messages ── */
+            <div className="whitespace-pre-line font-sans">{message.text}</div>
+          )}
 
           {/* Sources Section for AI Messages */}
           {isAi && message.sources && message.sources.length > 0 && (
@@ -90,7 +188,9 @@ const ChatBubble = ({ message }) => {
 
                 {showReflection && (
                   <div className="p-3 border-t border-slate-800 text-slate-300 bg-slate-950/40 font-mono text-[11px] leading-relaxed">
-                    {message.reflectionNotes}
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                      {message.reflectionNotes}
+                    </ReactMarkdown>
                   </div>
                 )}
               </div>
