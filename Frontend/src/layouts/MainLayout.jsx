@@ -8,7 +8,7 @@ const MainLayout = () => {
   const { isSidebarOpen } = useResearch();
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-[#F8FAFC] flex">
+    <div className="min-h-screen bg-[#F6F7FB] text-[#0F172A] flex">
       {/* Sidebar Navigation */}
       <Sidebar />
 

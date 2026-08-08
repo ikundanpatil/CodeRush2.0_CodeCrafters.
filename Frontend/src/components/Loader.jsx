@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Cpu, Sparkles, Brain } from 'lucide-react';
+import { Sparkles, Brain } from 'lucide-react';
 
 const Loader = ({ text = 'Autonomous Agent Analyzing...', size = 'md' }) => {
   const containerSizes = {
@@ -46,8 +46,8 @@ const Loader = ({ text = 'Autonomous Agent Analyzing...', size = 'md' }) => {
       </div>
 
       {text && (
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
-          <Sparkles className="w-4 h-4 text-cyan-400 animate-bounce" />
+        <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+          <Sparkles className="w-4 h-4 text-sky-500 animate-bounce" />
           <span>{text}</span>
         </div>
       )}

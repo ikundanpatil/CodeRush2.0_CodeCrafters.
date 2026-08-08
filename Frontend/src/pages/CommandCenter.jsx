@@ -66,6 +66,7 @@ const CommandCenter = () => {
   const [micListening, setMicListening] = useState(false);
   const [banner, setBanner] = useState(null);
   const announcedCompletionForRunId = useRef(null);
+  const hasGreetedRef = useRef(false);
 
   const assistantState = deriveAssistantState({ micError, micListening, speaking, session });
 
@@ -103,6 +104,20 @@ const CommandCenter = () => {
     }
   }, [session.runId, session.status, speak]);
 
+  // Spoken greeting the first time the mic is activated in this session --
+  // fires and finishes speaking BEFORE recognition starts (see VoiceInput's
+  // onBeforeListen), so Evo's own voice can never be misheard as a command.
+  const greetOnFirstListen = useCallback(() => {
+    if (hasGreetedRef.current) return Promise.resolve();
+    hasGreetedRef.current = true;
+    return new Promise((resolve) => {
+      speak(
+        "Hi, I'm Evo. Ask me to research anything, or say summarize, compare, read the report, or stop.",
+        { onEnd: resolve },
+      );
+    });
+  }, [speak]);
+
   const handleTranscript = useCallback(
     async (text) => {
       const hasActiveSession = Boolean(session.runId) && !TERMINAL_STATUSES.has(session.status);
@@ -110,6 +125,10 @@ const CommandCenter = () => {
 
       if (['START_RESEARCH', 'FOLLOW_UP', 'FIND_MORE_EVIDENCE'].includes(command.intent)) {
         speak("Sure, I'll research that and check the evidence.");
+      } else if (command.intent === 'STOP') {
+        speak(session.runId && !TERMINAL_STATUSES.has(session.status) ? "Okay, stopping the research." : "There's nothing running to stop.");
+      } else if (command.intent === 'EMPTY') {
+        speak("I didn't catch a request there. Try asking me to research something.");
       }
 
       await handleVoiceIntent(command, {
@@ -142,7 +161,7 @@ const CommandCenter = () => {
     <div className="w-full flex flex-col gap-6">
       {/* Top bar */}
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-extrabold text-slate-100 tracking-widest">EVORESEARCH</h1>
+        <h1 className="text-lg font-extrabold text-slate-900 tracking-widest">EVORESEARCH</h1>
         <Badge variant="success" glow>
           ONLINE
         </Badge>
@@ -151,17 +170,17 @@ const CommandCenter = () => {
       {banner && (
         <div
           role="alert"
-          className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 flex items-center justify-between"
+          className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center justify-between"
         >
           <span>{banner}</span>
-          <button onClick={() => setBanner(null)} className="text-red-300 hover:text-red-100 cursor-pointer" aria-label="Dismiss">
+          <button onClick={() => setBanner(null)} className="text-red-600 hover:text-red-800 cursor-pointer" aria-label="Dismiss">
             &times;
           </button>
         </div>
       )}
 
       {/* Assistant core + voice input */}
-      <div className="order-1 flex flex-col items-center gap-4 py-8 bg-[#1E293B]/50 border border-slate-700/60 rounded-[20px]">
+      <div className="order-1 flex flex-col items-center gap-4 py-8 bg-white border border-slate-200 shadow-sm rounded-[20px]">
         <AssistantCore state={assistantState} />
         <VoiceStatus
           state={assistantState}
@@ -180,6 +199,7 @@ const CommandCenter = () => {
             setMicListening(listening);
             setMicError(error);
           }}
+          onBeforeListen={greetOnFirstListen}
           disabled={session.loading}
         />
         {isActive && (

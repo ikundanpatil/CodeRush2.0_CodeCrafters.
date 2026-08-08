@@ -331,9 +331,9 @@ export const userProfile = {
     accuracyRating: '99.2%',
   },
   achievements: [
-    { title: 'Research Master', description: 'Completed over 100 deep autonomous research agent tasks', icon: 'Award', color: 'text-amber-400', date: 'Unlocked' },
-    { title: 'AI Explorer', description: 'Evaluated 50+ whitepapers and GitHub codebases', icon: 'Compass', color: 'text-cyan-400', date: 'Unlocked' },
-    { title: 'Knowledge Builder', description: 'Added 300+ vector memory embeddings to long-term database', icon: 'Database', color: 'text-emerald-400', date: 'Unlocked' },
-    { title: 'Reflection Guru', description: 'Achieved zero hallucinated citations across 50 consecutive runs', icon: 'CheckCircle2', color: 'text-blue-400', date: 'Unlocked' },
+    { title: 'Research Master', description: 'Completed over 100 deep autonomous research agent tasks', icon: 'Award', color: 'text-amber-600', date: 'Unlocked' },
+    { title: 'AI Explorer', description: 'Evaluated 50+ whitepapers and GitHub codebases', icon: 'Compass', color: 'text-sky-600', date: 'Unlocked' },
+    { title: 'Knowledge Builder', description: 'Added 300+ vector memory embeddings to long-term database', icon: 'Database', color: 'text-emerald-600', date: 'Unlocked' },
+    { title: 'Reflection Guru', description: 'Achieved zero hallucinated citations across 50 consecutive runs', icon: 'CheckCircle2', color: 'text-indigo-600', date: 'Unlocked' },
   ],
 };

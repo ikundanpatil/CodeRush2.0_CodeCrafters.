@@ -21,8 +21,8 @@ const VoiceStatus = ({ state = 'idle', detail = '', className = '' }) => {
 
   return (
     <div className={`text-center ${className}`}>
-      <p className="text-sm font-semibold text-slate-200 tracking-wide uppercase">{label}</p>
-      {detail && <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">{detail}</p>}
+      <p className="text-sm font-semibold text-slate-900 tracking-wide uppercase">{label}</p>
+      {detail && <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">{detail}</p>}
       <span className="sr-only" role="status" aria-live="polite">
         {label}
         {detail ? `. ${detail}` : ''}

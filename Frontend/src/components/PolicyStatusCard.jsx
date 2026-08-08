@@ -29,15 +29,15 @@ const PolicyStatusCard = () => {
   }, []);
 
   return (
-    <div className="w-full bg-[#1E293B]/90 border border-slate-700/80 rounded-[14px] p-5 shadow-xl flex flex-col gap-3">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-700/60">
+    <div className="w-full bg-white border border-slate-200 rounded-[14px] p-5 shadow-sm flex flex-col gap-3">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+          <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600">
             <ShieldCheck className="w-4 h-4" />
           </div>
           <div>
-            <h4 className="text-sm font-bold text-slate-100">Safety / Policy Engine</h4>
-            <p className="text-[11px] text-slate-400">Deterministic action guardrails</p>
+            <h4 className="text-sm font-bold text-slate-900">Safety / Policy Engine</h4>
+            <p className="text-[11px] text-slate-500">Deterministic action guardrails</p>
           </div>
         </div>
 
@@ -53,8 +53,8 @@ const PolicyStatusCard = () => {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 text-[11px] text-slate-400 py-2">
-          <ShieldQuestion className="w-4 h-4 text-slate-500" />
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 py-2">
+          <ShieldQuestion className="w-4 h-4 text-slate-400" />
           Policy status unavailable -- backend unreachable.
         </div>
       )}
@@ -62,7 +62,7 @@ const PolicyStatusCard = () => {
       {status && (
         <>
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
               Recent decisions
             </p>
             {status.recent_decisions.length === 0 ? (
@@ -74,9 +74,9 @@ const PolicyStatusCard = () => {
                   return (
                     <div
                       key={idx}
-                      className="flex items-center justify-between gap-2 text-xs bg-slate-900/60 border border-slate-800 rounded-lg px-2.5 py-1.5"
+                      className="flex items-center justify-between gap-2 text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5"
                     >
-                      <span className="font-mono text-slate-300 truncate">{d.action}</span>
+                      <span className="font-mono text-slate-600 truncate">{d.action}</span>
                       <Badge variant={badge.variant} size="sm">
                         {badge.label}
                       </Badge>
@@ -87,7 +87,7 @@ const PolicyStatusCard = () => {
             )}
           </div>
 
-          <div className="pt-2 border-t border-slate-700/60 flex items-center gap-2 text-[10px] text-slate-500">
+          <div className="pt-2 border-t border-slate-100 flex items-center gap-2 text-[10px] text-slate-400">
             <ShieldAlert className="w-3.5 h-3.5" />
             Max iterations: {status.limits.max_allowed_research_iterations} &middot; Max sources/iteration:{' '}
             {status.limits.max_allowed_sources_per_iteration}

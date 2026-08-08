@@ -37,21 +37,21 @@ const EvidenceGraphPanel = ({ graph }) => {
           const evidenceEdges = edgesFrom(claim.id);
           return (
             <li key={claim.id} className="text-xs">
-              <p className="font-semibold text-slate-200">{claim.label}</p>
-              <ul className="mt-1.5 ml-3 pl-3 border-l border-slate-700/60 space-y-1.5">
+              <p className="font-semibold text-slate-800">{claim.label}</p>
+              <ul className="mt-1.5 ml-3 pl-3 border-l border-slate-200 space-y-1.5">
                 {evidenceEdges.map((edge) => {
                   const evidenceNode = nodeById[edge.to];
                   if (!evidenceNode) return null;
                   const sourceEdge = edgesFrom(evidenceNode.id).find((e) => e.relationship === 'DERIVED_FROM');
                   const sourceNode = sourceEdge ? nodeById[sourceEdge.to] : null;
                   return (
-                    <li key={evidenceNode.id} className="text-slate-400">
+                    <li key={evidenceNode.id} className="text-slate-500">
                       <span className="text-slate-500">{edge.relationship}</span> {evidenceNode.label}
-                      {sourceNode && <span className="text-slate-600"> -- from {sourceNode.label}</span>}
+                      {sourceNode && <span className="text-slate-400"> -- from {sourceNode.label}</span>}
                     </li>
                   );
                 })}
-                {evidenceEdges.length === 0 && <li className="text-slate-600">No linked evidence.</li>}
+                {evidenceEdges.length === 0 && <li className="text-slate-400">No linked evidence.</li>}
               </ul>
             </li>
           );
@@ -63,10 +63,10 @@ const EvidenceGraphPanel = ({ graph }) => {
 };
 
 const Panel = ({ children }) => (
-  <div className="w-full bg-[#1E293B]/90 border border-slate-700/80 rounded-[14px] p-5 shadow-xl flex flex-col gap-3">
-    <div className="flex items-center gap-2 pb-3 border-b border-slate-700/60">
-      <GitBranch className="w-4 h-4 text-cyan-400" aria-hidden="true" />
-      <h4 className="text-sm font-bold text-slate-100">Evidence Graph</h4>
+  <div className="w-full bg-white border border-slate-200 rounded-[14px] p-5 shadow-sm flex flex-col gap-3">
+    <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+      <GitBranch className="w-4 h-4 text-sky-600" aria-hidden="true" />
+      <h4 className="text-sm font-bold text-slate-900">Evidence Graph</h4>
     </div>
     <div className="max-h-72 overflow-y-auto pr-1">{children}</div>
   </div>

@@ -51,19 +51,31 @@ try:
 except Exception as _startup_log_error:  # never let a logging step block startup
     print(f"Configuration logging failed (non-fatal): {_startup_log_error}")
 
-# Enable CORS for the local frontend (configurable via CORS_ORIGINS, comma-separated)
+# Enable CORS for the frontend (configurable via CORS_ORIGINS, comma-separated).
+# Also supports wildcard Vercel/Render preview domains automatically via regex.
 _cors_origins = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     if origin.strip()
 ]
+
+# Regex patterns that match any Vercel preview deployment URL for this project.
+# These cover both production (*.vercel.app) and branch/PR preview deployments.
+_cors_origin_regex = (
+    r"https://.*\.vercel\.app"
+    r"|https://.*\.onrender\.com"
+    r"|http://localhost:[0-9]+"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=_cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/api/health")
 def health_check():

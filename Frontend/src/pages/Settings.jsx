@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Sparkles, Bell, Shield, Cpu, Key, Check, Save } from 'lucide-react';
+import { Settings as SettingsIcon, Sparkles, Bell, Cpu, Key, Check, Save } from 'lucide-react';
 import { useResearch } from '../context/ResearchContext';
 import { aiModels } from '../utils/dummyData';
 import Button from '../components/Button';
@@ -9,7 +9,6 @@ import Badge from '../components/Badge';
 const Settings = () => {
   const { selectedModel, setSelectedModel } = useResearch();
 
-  const [accentColor, setAccentColor] = useState('cyan');
   const [temperature, setTemperature] = useState(0.2);
   const [reasoningBudget, setReasoningBudget] = useState('High');
   const [emailAlerts, setEmailAlerts] = useState(true);
@@ -32,23 +31,23 @@ const Settings = () => {
             Platform Configuration
           </Badge>
         </div>
-        <h1 className="text-2xl font-extrabold text-slate-100">ResearchMind Agent Settings</h1>
-        <p className="text-xs text-slate-400">
+        <h1 className="text-2xl font-extrabold text-slate-900">ResearchMind Agent Settings</h1>
+        <p className="text-xs text-slate-500">
           Configure model parameters, notification webhooks, and FastAPI backend endpoints.
         </p>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* 1. Cognitive AI Model Settings */}
-        <div className="p-6 rounded-[20px] bg-[#1E293B] border border-slate-700/80 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2 border-b border-slate-700/60 pb-3">
-            <Cpu className="w-4 h-4 text-cyan-400" />
+        <div className="p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Cpu className="w-4 h-4 text-sky-600" />
             1. Cognitive Model & Reasoning Budget
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 block mb-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 block mb-1.5">
                 Default LLM Model
               </label>
               <select
@@ -57,7 +56,7 @@ const Settings = () => {
                   const m = aiModels.find((model) => model.id === e.target.value);
                   if (m) setSelectedModel(m);
                 }}
-                className="w-full bg-[#0F172A] border border-slate-700 rounded-[14px] px-4 py-2.5 text-sm text-slate-200"
+                className="w-full bg-white border border-slate-200 rounded-[14px] px-4 py-2.5 text-sm text-slate-700"
               >
                 {aiModels.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -68,13 +67,13 @@ const Settings = () => {
             </div>
 
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 block mb-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-600 block mb-1.5">
                 Reasoning Effort
               </label>
               <select
                 value={reasoningBudget}
                 onChange={(e) => setReasoningBudget(e.target.value)}
-                className="w-full bg-[#0F172A] border border-slate-700 rounded-[14px] px-4 py-2.5 text-sm text-slate-200"
+                className="w-full bg-white border border-slate-200 rounded-[14px] px-4 py-2.5 text-sm text-slate-700"
               >
                 <option value="Low">Low (Fast Response)</option>
                 <option value="Medium">Medium (Balanced)</option>
@@ -85,9 +84,9 @@ const Settings = () => {
           </div>
 
           <div>
-            <div className="flex justify-between text-xs font-semibold text-slate-300 mb-1.5">
+            <div className="flex justify-between text-xs font-semibold text-slate-600 mb-1.5">
               <span>Reasoning Temperature</span>
-              <span className="font-mono text-cyan-400">{temperature}</span>
+              <span className="font-mono text-sky-600">{temperature}</span>
             </div>
             <input
               type="range"
@@ -96,34 +95,34 @@ const Settings = () => {
               step="0.05"
               value={temperature}
               onChange={(e) => setTemperature(parseFloat(e.target.value))}
-              className="w-full accent-cyan-400 cursor-pointer"
+              className="w-full accent-slate-900 cursor-pointer"
             />
-            <span className="text-[11px] text-slate-400">Lower temperature ensures zero hallucinations on literature review.</span>
+            <span className="text-[11px] text-slate-500">Lower temperature ensures zero hallucinations on literature review.</span>
           </div>
         </div>
 
         {/* 2. Theme & Visual Preferences */}
-        <div className="p-6 rounded-[20px] bg-[#1E293B] border border-slate-700/80 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2 border-b border-slate-700/60 pb-3">
-            <Sparkles className="w-4 h-4 text-cyan-400" />
+        <div className="p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Sparkles className="w-4 h-4 text-sky-600" />
             2. UI Theme System
           </h3>
 
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-200">Enforced Dark SaaS Theme</p>
-              <p className="text-xs text-slate-400">High-contrast enterprise dashboard palette optimized for night work.</p>
+              <p className="text-sm font-semibold text-slate-700">Clean Light SaaS Theme</p>
+              <p className="text-xs text-slate-500">Bright, minimal enterprise dashboard palette optimized for daytime clarity.</p>
             </div>
             <Badge variant="cyan" glow>
-              Dark Mode Active
+              Light Mode Active
             </Badge>
           </div>
         </div>
 
         {/* 3. Notifications & Webhooks */}
-        <div className="p-6 rounded-[20px] bg-[#1E293B] border border-slate-700/80 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2 border-b border-slate-700/60 pb-3">
-            <Bell className="w-4 h-4 text-cyan-400" />
+        <div className="p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Bell className="w-4 h-4 text-sky-600" />
             3. Notifications & Automation
           </h3>
 
@@ -133,11 +132,11 @@ const Settings = () => {
                 type="checkbox"
                 checked={emailAlerts}
                 onChange={(e) => setEmailAlerts(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500"
+                className="w-4 h-4 rounded border-slate-300 bg-white text-slate-900 focus:ring-slate-400"
               />
               <div>
-                <span className="text-sm font-semibold text-slate-200">Email Summaries on Task Completion</span>
-                <p className="text-xs text-slate-400">Receive PDF executive reports in your inbox as soon as agent finishes.</p>
+                <span className="text-sm font-semibold text-slate-700">Email Summaries on Task Completion</span>
+                <p className="text-xs text-slate-500">Receive PDF executive reports in your inbox as soon as agent finishes.</p>
               </div>
             </label>
 
@@ -151,9 +150,9 @@ const Settings = () => {
         </div>
 
         {/* 4. FastAPI Backend Connection */}
-        <div className="p-6 rounded-[20px] bg-[#1E293B] border border-slate-700/80 shadow-xl space-y-4">
-          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2 border-b border-slate-700/60 pb-3">
-            <Key className="w-4 h-4 text-cyan-400" />
+        <div className="p-6 rounded-[20px] bg-white border border-slate-200 shadow-sm space-y-4">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+            <Key className="w-4 h-4 text-sky-600" />
             4. FastAPI Backend Axios Endpoint
           </h3>
 

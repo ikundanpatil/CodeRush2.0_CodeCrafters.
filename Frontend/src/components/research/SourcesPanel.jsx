@@ -13,10 +13,10 @@ const domainOf = (url) => {
  * invents a source. Links open safely (new tab, no opener/referrer leak). */
 const SourcesPanel = ({ sources }) => {
   return (
-    <div className="w-full bg-[#1E293B]/90 border border-slate-700/80 rounded-[14px] p-5 shadow-xl flex flex-col gap-3">
-      <div className="flex items-center gap-2 pb-3 border-b border-slate-700/60">
-        <Link2 className="w-4 h-4 text-cyan-400" aria-hidden="true" />
-        <h4 className="text-sm font-bold text-slate-100">Sources</h4>
+    <div className="w-full bg-white border border-slate-200 rounded-[14px] p-5 shadow-sm flex flex-col gap-3">
+      <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+        <Link2 className="w-4 h-4 text-sky-600" aria-hidden="true" />
+        <h4 className="text-sm font-bold text-slate-900">Sources</h4>
       </div>
 
       {sources === null || sources === undefined ? (
@@ -26,12 +26,12 @@ const SourcesPanel = ({ sources }) => {
       ) : (
         <ul className="space-y-2 max-h-72 overflow-y-auto pr-1">
           {sources.map((source) => (
-            <li key={source.id} className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800">
+            <li key={source.id} className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
               <a
                 href={source.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-start justify-between gap-2 text-xs font-semibold text-slate-200 hover:text-cyan-300 transition-colors"
+                className="flex items-start justify-between gap-2 text-xs font-semibold text-slate-800 hover:text-sky-700 transition-colors"
               >
                 <span className="line-clamp-2">{source.title}</span>
                 <ExternalLink className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" aria-hidden="true" />

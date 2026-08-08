@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Brain, ArrowRight, Lock, Mail, Sparkles, Shield, Cpu, Network, CheckCircle2 } from 'lucide-react';
+import { Brain, ArrowRight, Lock, Mail, Sparkles, Cpu, Network, CheckCircle2 } from 'lucide-react';
 import Button from '../components/Button';
 import Input from '../components/Input';
 import { authAPI } from '../services/api';
@@ -21,30 +21,30 @@ const Login = () => {
   };
 
   return (
-    <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-center bg-[#1E293B]/70 border border-slate-700/80 rounded-[24px] p-6 lg:p-12 shadow-2xl backdrop-blur-xl">
+    <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-center bg-white border border-slate-200 rounded-[24px] p-6 lg:p-12 shadow-lg">
       {/* Left Form Section */}
       <div className="space-y-8 max-w-md mx-auto w-full">
         {/* Brand Logo */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-cyan-500 to-emerald-400 p-0.5 shadow-xl shadow-cyan-500/25 flex items-center justify-center">
-            <div className="w-full h-full bg-[#0F172A] rounded-[14px] flex items-center justify-center">
-              <Brain className="w-7 h-7 text-cyan-400" />
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-500 via-sky-500 to-emerald-400 p-0.5 shadow-md shadow-sky-200 flex items-center justify-center">
+            <div className="w-full h-full bg-[#0B0D12] rounded-[14px] flex items-center justify-center">
+              <Brain className="w-7 h-7 text-sky-400" />
             </div>
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              ResearchMind <span className="text-cyan-400 text-xs px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 font-mono">v2.6</span>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+              ResearchMind <span className="text-sky-600 text-xs px-2 py-0.5 rounded bg-sky-50 border border-sky-200 font-mono">v2.6</span>
             </h1>
-            <p className="text-xs text-slate-400">Autonomous Agent Platform</p>
+            <p className="text-xs text-slate-500">Autonomous Agent Platform</p>
           </div>
         </div>
 
         {/* Headings */}
         <div className="space-y-2">
-          <h2 className="text-3xl font-extrabold text-slate-100 tracking-tight leading-tight">
+          <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight leading-tight">
             Autonomous Research Intelligence
           </h2>
-          <p className="text-sm text-slate-400 leading-relaxed">
+          <p className="text-sm text-slate-500 leading-relaxed">
             AI agents that search, analyze and generate deep research reports automatically.
           </p>
         </div>
@@ -72,11 +72,11 @@ const Login = () => {
           />
 
           <div className="flex items-center justify-between text-xs">
-            <label className="flex items-center gap-2 text-slate-400 cursor-pointer">
-              <input type="checkbox" defaultChecked className="rounded border-slate-700 bg-slate-900 text-cyan-500 focus:ring-cyan-500" />
+            <label className="flex items-center gap-2 text-slate-500 cursor-pointer">
+              <input type="checkbox" defaultChecked className="rounded border-slate-300 bg-white text-slate-900 focus:ring-slate-400" />
               Remember me for 30 days
             </label>
-            <a href="#forgot" className="text-cyan-400 hover:underline font-medium">Forgot password?</a>
+            <a href="#forgot" className="text-sky-600 hover:underline font-medium">Forgot password?</a>
           </div>
 
           <Button type="submit" variant="primary" size="lg" className="w-full" isLoading={isLoading} icon={ArrowRight}>
@@ -84,14 +84,14 @@ const Login = () => {
           </Button>
 
           <div className="relative py-2 flex items-center justify-center">
-            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-700/60" /></div>
-            <span className="relative bg-[#1E293B] px-3 text-xs text-slate-500 font-mono">OR CONTINUE WITH</span>
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200" /></div>
+            <span className="relative bg-white px-3 text-xs text-slate-400 font-mono">OR CONTINUE WITH</span>
           </div>
 
           <button
             type="button"
             onClick={handleSubmit}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-[14px] bg-slate-800/90 border border-slate-700 hover:border-slate-500 text-slate-200 text-sm font-semibold transition-all cursor-pointer"
+            className="w-full flex items-center justify-center gap-3 px-4 py-3 rounded-[14px] bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-sm font-semibold transition-all cursor-pointer shadow-sm"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z" />
@@ -103,7 +103,7 @@ const Login = () => {
           </button>
         </form>
 
-        <p className="text-xs text-center text-slate-400">
+        <p className="text-xs text-center text-slate-500">
           Enterprise Security Standard • AES-256 Vector Encryption
         </p>
       </div>

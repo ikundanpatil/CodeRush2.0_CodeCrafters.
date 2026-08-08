@@ -32,33 +32,33 @@ const Table = ({ columns, data, searchKey = 'topic', onRowClick = null }) => {
             }}
           />
         </div>
-        <div className="text-xs text-slate-400 self-end sm:self-auto">
-          Showing <span className="font-medium text-slate-200">{filteredData.length}</span> results
+        <div className="text-xs text-slate-500 self-end sm:self-auto">
+          Showing <span className="font-medium text-slate-700">{filteredData.length}</span> results
         </div>
       </div>
 
       {/* Table Container */}
-      <div className="w-full overflow-x-auto rounded-[14px] border border-slate-700/60 bg-[#1E293B]/70 shadow-lg">
+      <div className="w-full overflow-x-auto rounded-[14px] border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-slate-700/80 bg-[#111827]/60 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <tr className="border-b border-slate-100 bg-slate-50/80 text-xs font-semibold uppercase tracking-wider text-slate-500">
               {columns.map((col, idx) => (
                 <th key={idx} className={`py-3.5 px-4 ${col.className || ''}`}>
-                  <div className="flex items-center gap-1.5 cursor-pointer hover:text-slate-200">
+                  <div className="flex items-center gap-1.5 cursor-pointer hover:text-slate-700">
                     <span>{col.header}</span>
-                    {col.sortable && <ArrowUpDown className="w-3 h-3 text-slate-500" />}
+                    {col.sortable && <ArrowUpDown className="w-3 h-3 text-slate-400" />}
                   </div>
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-700/50 text-sm text-slate-200">
+          <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
             {currentData.length > 0 ? (
               currentData.map((row, rowIdx) => (
                 <tr
                   key={row.id || rowIdx}
                   onClick={() => onRowClick && onRowClick(row)}
-                  className={`transition-colors hover:bg-slate-800/80 ${
+                  className={`transition-colors hover:bg-slate-50 ${
                     onRowClick ? 'cursor-pointer' : ''
                   }`}
                 >
@@ -83,21 +83,21 @@ const Table = ({ columns, data, searchKey = 'topic', onRowClick = null }) => {
       {/* Pagination Controls */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between pt-2">
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-slate-500">
             Page {currentPage} of {totalPages}
           </div>
           <div className="flex items-center gap-2">
             <button
               disabled={currentPage === 1}
               onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-              className="p-2 rounded-lg bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
-              className="p-2 rounded-lg bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-slate-900 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

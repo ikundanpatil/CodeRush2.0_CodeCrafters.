@@ -30,11 +30,11 @@ const FeedbackPanel = ({ runId }) => {
   if (!runId) return null;
 
   return (
-    <div className="w-full bg-[#1E293B]/90 border border-slate-700/80 rounded-[14px] p-5 shadow-xl flex flex-col gap-3">
-      <h4 className="text-sm font-bold text-slate-100">Was this answer useful?</h4>
+    <div className="w-full bg-white border border-slate-200 rounded-[14px] p-5 shadow-sm flex flex-col gap-3">
+      <h4 className="text-sm font-bold text-slate-900">Was this answer useful?</h4>
 
       {submitted ? (
-        <p className="flex items-center gap-1.5 text-xs text-emerald-400">
+        <p className="flex items-center gap-1.5 text-xs text-emerald-600">
           <Check className="w-3.5 h-3.5" aria-hidden="true" />
           Thanks -- your feedback was recorded ({helpful ? 'helpful' : 'not helpful'}).
         </p>
@@ -46,7 +46,7 @@ const FeedbackPanel = ({ runId }) => {
             onChange={(e) => setComment(e.target.value)}
             placeholder="Optional comment..."
             aria-label="Optional feedback comment"
-            className="w-full bg-[#0F172A] border border-slate-700/80 rounded-[12px] px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 resize-none"
+            className="w-full bg-white border border-slate-200 rounded-[12px] px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 resize-none"
           />
           <div className="flex items-center gap-2">
             <Button size="sm" variant="secondary" icon={ThumbsUp} isLoading={busy} onClick={() => submit(true)}>
@@ -60,7 +60,7 @@ const FeedbackPanel = ({ runId }) => {
       )}
 
       {error && (
-        <p className="text-xs text-red-400" role="alert">
+        <p className="text-xs text-red-600" role="alert">
           {error}
         </p>
       )}

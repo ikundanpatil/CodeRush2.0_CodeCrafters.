@@ -12,12 +12,12 @@ const Input = ({
   ...props
 }) => {
   const baseInputStyles =
-    'w-full bg-[#0F172A]/80 text-[#F8FAFC] placeholder-slate-500 border border-slate-700/60 rounded-[14px] px-4 py-2.5 text-sm transition-all duration-200 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 disabled:opacity-50 disabled:cursor-not-allowed';
+    'w-full bg-white text-slate-900 placeholder-slate-400 border border-slate-200 rounded-[14px] px-4 py-2.5 text-sm transition-all duration-200 focus:outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-300 disabled:opacity-50 disabled:cursor-not-allowed';
 
   return (
     <div className="w-full flex flex-col gap-1.5">
       {label && (
-        <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+        <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           {label}
         </label>
       )}
@@ -40,7 +40,7 @@ const Input = ({
             {...props}
           >
             {options.map((opt) => (
-              <option key={opt.value || opt} value={opt.value || opt} className="bg-[#1E293B] text-slate-200">
+              <option key={opt.value || opt} value={opt.value || opt} className="bg-white text-slate-800">
                 {opt.label || opt}
               </option>
             ))}

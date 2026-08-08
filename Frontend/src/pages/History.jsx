@@ -48,8 +48,8 @@ const History = () => {
       sortable: true,
       render: (row) => (
         <div className="space-y-1">
-          <p className="font-semibold text-slate-200 line-clamp-1">{row.question}</p>
-          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
+          <p className="font-semibold text-slate-800 line-clamp-1">{row.question}</p>
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
             <span>{row.source_count} sources</span>
             <span>&bull;</span>
             <span>{row.claim_count} claims</span>
@@ -65,7 +65,7 @@ const History = () => {
       sortable: true,
       className: 'w-36',
       render: (row) => (
-        <span className="font-mono text-xs text-slate-400">
+        <span className="font-mono text-xs text-slate-500">
           {new Date(row.created_at).toLocaleString()}
         </span>
       ),
@@ -96,7 +96,7 @@ const History = () => {
           <span className="text-xs text-slate-500">&mdash;</span>
         ) : (
           <span
-            className={`flex items-center gap-1 text-xs ${row.verification_valid ? 'text-emerald-400' : 'text-amber-400'}`}
+            className={`flex items-center gap-1 text-xs ${row.verification_valid ? 'text-emerald-600' : 'text-amber-600'}`}
           >
             <ShieldCheck className="w-3 h-3" aria-hidden="true" />
             {row.verification_valid ? 'Verified' : 'Issues'}
@@ -111,7 +111,7 @@ const History = () => {
         <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => navigate(`/command-center?run=${row.run_id}`)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-cyan-500/20 text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-sky-50 text-sky-600 hover:text-sky-700 transition-colors cursor-pointer"
             title="Open research session"
             aria-label={`Open research session for ${row.question}`}
           >
@@ -120,7 +120,7 @@ const History = () => {
           <button
             onClick={() => handleDownloadPDF(row.run_id)}
             disabled={!row.report_available || downloadingId === row.run_id}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             title={row.report_available ? 'Download PDF report' : 'Report not available yet'}
             aria-label={`Download PDF report for ${row.question}`}
           >
@@ -140,8 +140,8 @@ const History = () => {
               Audit Trail & Execution Logs
             </Badge>
           </div>
-          <h1 className="text-2xl font-extrabold text-slate-100">Autonomous Research History</h1>
-          <p className="text-xs text-slate-400">Past research runs, with verification status and downloadable reports.</p>
+          <h1 className="text-2xl font-extrabold text-slate-900">Autonomous Research History</h1>
+          <p className="text-xs text-slate-500">Past research runs, with verification status and downloadable reports.</p>
         </div>
 
         <Button variant="primary" size="md" icon={PlusCircle} onClick={() => navigate('/command-center')}>
@@ -150,7 +150,7 @@ const History = () => {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2" role="alert">
+        <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2" role="alert">
           <AlertTriangle className="w-4 h-4" aria-hidden="true" />
           {error}
         </div>

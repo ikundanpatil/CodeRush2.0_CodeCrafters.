@@ -34,11 +34,11 @@ const ResearchReportPanel = ({ finalReport, query, onReadAloud, speaking, onGene
   };
 
   return (
-    <div className="w-full bg-[#1E293B]/90 border border-slate-700/80 rounded-[14px] p-5 shadow-xl flex flex-col gap-3">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-700/60">
+    <div className="w-full bg-white border border-slate-200 rounded-[14px] p-5 shadow-sm flex flex-col gap-3">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-100">
         <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-cyan-400" aria-hidden="true" />
-          <h4 className="text-sm font-bold text-slate-100">Final Report</h4>
+          <FileText className="w-4 h-4 text-sky-600" aria-hidden="true" />
+          <h4 className="text-sm font-bold text-slate-900">Final Report</h4>
         </div>
         {query && <span className="text-[11px] text-slate-500 truncate max-w-xs">{query}</span>}
       </div>
@@ -47,10 +47,10 @@ const ResearchReportPanel = ({ finalReport, query, onReadAloud, speaking, onGene
         <p className="text-xs text-slate-500">Waiting for data...</p>
       ) : (
         <>
-          <div className="max-h-96 overflow-y-auto pr-1 text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">
+          <div className="max-h-96 overflow-y-auto pr-1 text-xs text-slate-600 leading-relaxed whitespace-pre-wrap">
             {finalReport}
           </div>
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-700/60">
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
             <Button size="sm" variant="secondary" icon={Volume2} onClick={onReadAloud} disabled={speaking}>
               Read Aloud
             </Button>
