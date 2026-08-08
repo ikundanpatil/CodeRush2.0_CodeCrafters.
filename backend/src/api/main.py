@@ -67,7 +67,12 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "service": "EvoResearch AE-02 Phase 1 MVP", "version": "0.1.0"}
+    return {
+        "status": "ok",
+        "service": "EvoResearch AE-02 Phase 1 MVP",
+        "version": "0.1.0",
+        "database": store.db_backend,  # e.g. "PostgreSQL", "MySQL", "in-memory fallback"
+    }
 
 @app.post("/api/research", response_model=ResearchStatusResponse, status_code=status.HTTP_201_CREATED)
 async def create_research_run(payload: ResearchCreateRequest, background_tasks: BackgroundTasks):

@@ -1,10 +1,16 @@
-"""Phase 7 strategy persistence backed by MySQL (source of truth).
+"""Phase 7 strategy persistence.
+
+Database priority (mirrors src/storage/store.py):
+    1. DATABASE_URL  → PostgreSQL (Render production)
+    2. MYSQL_*       → local MySQL (development)
+    3. (none)        → volatile in-memory dict (degraded mode)
 
 Same pattern as `src/memory/mysql_store.py`: SQLAlchemy 2.0 declarative
 mapping, non-destructive `create_all`, and a volatile in-memory fallback so
-evolution keeps working (just non-durably) if MySQL is unreachable.
+evolution keeps working (just non-durably) if the database is unreachable.
 """
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -58,6 +64,18 @@ def _env(key: str, default=None):
     return os.getenv(key, default)
 
 
+_logger = logging.getLogger(__name__)
+
+
+def _normalize_pg_url(url: str) -> str:
+    """Normalize postgres:// or postgresql:// → postgresql+psycopg:// for SQLAlchemy."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 class EvolutionStore:
     """Strategy lineage store. MySQL primary, in-memory fallback for degraded mode."""
 
@@ -72,6 +90,23 @@ class EvolutionStore:
         self._try_connect(engine, create_tables)
 
     def _build_engine_from_env(self) -> Optional[Engine]:
+        # 1. DATABASE_URL takes priority (Render PostgreSQL)
+        db_url = _env("DATABASE_URL")
+        if db_url:
+            try:
+                return create_engine(
+                    _normalize_pg_url(db_url),
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    connect_args={"connect_timeout": 5},
+                )
+            except Exception as e:
+                _logger.warning(
+                    "EvolutionStore: DATABASE_URL engine creation failed (%s: %s); trying MYSQL_*.",
+                    type(e).__name__, e,
+                )
+
+        # 2. Local MySQL
         host = _env("MYSQL_HOST")
         port = _env("MYSQL_PORT", "3306")
         user = _env("MYSQL_USER")
@@ -86,7 +121,11 @@ class EvolutionStore:
                 pool_recycle=3600,
                 connect_args={"connect_timeout": 3},
             )
-        except Exception:
+        except Exception as e:
+            _logger.warning(
+                "EvolutionStore: MySQL engine creation failed (%s: %s); using in-memory fallback.",
+                type(e).__name__, e,
+            )
             return None
 
     def _try_connect(self, engine: Optional[Engine], create_tables: bool):
@@ -102,7 +141,11 @@ class EvolutionStore:
             self._engine = engine
             self._session = sessionmaker(bind=engine)
             self._mysql_active = True
-        except Exception:
+        except Exception as e:
+            _logger.warning(
+                "EvolutionStore: DB connection test failed (%s: %s); using in-memory fallback.",
+                type(e).__name__, e,
+            )
             self._mysql_active = False
 
     @property

@@ -1,8 +1,16 @@
-"""ConversationSession persistence -- same MySQL+in-memory-fallback,
-write-through-cache pattern as src/storage/store.py (object identity
-preserved for the live session within a process; MySQL for durability)."""
+"""ConversationSession persistence.
+
+Database priority (mirrors src/storage/store.py):
+    1. DATABASE_URL  → PostgreSQL (Render production)
+    2. MYSQL_*       → local MySQL (development)
+    3. (none)        → volatile in-memory dict (degraded mode)
+
+Write-through-cache: object identity is preserved for the live session within
+a process; database provides durability across restarts.
+"""
 
 import json
+import logging
 import os
 from typing import Dict, List, Optional
 
@@ -31,6 +39,18 @@ def _env(key, default=None):
     return os.getenv(key, default)
 
 
+_logger = logging.getLogger(__name__)
+
+
+def _normalize_pg_url(url: str) -> str:
+    """Normalize postgres:// or postgresql:// → postgresql+psycopg:// for SQLAlchemy."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 class ConversationStore:
     def __init__(self, engine: Optional[Engine] = None, create_tables: bool = True):
         self._sessions: Dict[str, ConversationSession] = {}
@@ -42,6 +62,23 @@ class ConversationStore:
         self._try_connect(engine, create_tables)
 
     def _build_engine_from_env(self) -> Optional[Engine]:
+        # 1. DATABASE_URL takes priority (Render PostgreSQL)
+        db_url = _env("DATABASE_URL")
+        if db_url:
+            try:
+                return create_engine(
+                    _normalize_pg_url(db_url),
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    connect_args={"connect_timeout": 5},
+                )
+            except Exception as e:
+                _logger.warning(
+                    "ConversationStore: DATABASE_URL engine creation failed (%s: %s); trying MYSQL_*.",
+                    type(e).__name__, e,
+                )
+
+        # 2. Local MySQL
         host = _env("MYSQL_HOST"); user = _env("MYSQL_USER"); database = _env("MYSQL_DATABASE")
         if not (host and user and database):
             return None
@@ -50,7 +87,11 @@ class ConversationStore:
                 f"mysql+pymysql://{user}:{_env('MYSQL_PASSWORD')}@{host}:{_env('MYSQL_PORT', '3306')}/{database}",
                 pool_pre_ping=True, pool_recycle=3600, connect_args={"connect_timeout": 3},
             )
-        except Exception:
+        except Exception as e:
+            _logger.warning(
+                "ConversationStore: MySQL engine creation failed (%s: %s); using in-memory fallback.",
+                type(e).__name__, e,
+            )
             return None
 
     def _try_connect(self, engine: Optional[Engine], create_tables: bool):
@@ -64,7 +105,11 @@ class ConversationStore:
                 Base.metadata.create_all(engine)
             self._session_factory = sessionmaker(bind=engine)
             self._mysql_active = True
-        except Exception:
+        except Exception as e:
+            _logger.warning(
+                "ConversationStore: DB connection test failed (%s: %s); using in-memory fallback.",
+                type(e).__name__, e,
+            )
             self._mysql_active = False
 
     @property

@@ -77,10 +77,13 @@ class Settings:
 
     @property
     def database_backend(self) -> str:
-        """Canonical storage backend: postgresql | mysql | memory."""
-        if self.database_url:
+        """Canonical storage backend identifier: 'postgresql' | 'mysql' | 'memory'.
+        Priority matches src/storage/store.py — DATABASE_URL wins over MYSQL_*.
+        Never reads the actual credential values, only checks key presence.
+        """
+        if _env("DATABASE_URL"):
             return "postgresql"
-        if self.mysql_configured:
+        if _env("MYSQL_HOST") and _env("MYSQL_USER") and _env("MYSQL_DATABASE"):
             return "mysql"
         return "memory"
 
@@ -98,6 +101,13 @@ class Settings:
 
 settings = Settings()
 
+# -- Human-readable labels for startup logging --------------------------------
+_BACKEND_LABELS = {
+    "postgresql": "PostgreSQL",
+    "mysql": "MySQL",
+    "memory": "in-memory fallback",
+}
+
 
 def log_startup_config() -> None:
     """Prints which REAL backend is active for each subsystem. Never logs a
@@ -105,7 +115,9 @@ def log_startup_config() -> None:
     from src.storage.store import store
     from src.memory.chroma_store import chroma_store
 
-    db_backend = f"Database backend:    {store.db_backend}"
+    # Use the live store's actual connection result (authoritative at runtime),
+    # but also cross-check with settings for display label consistency.
+    db_label = _BACKEND_LABELS.get(store.database_backend, store.db_backend)
     vector_backend = "ChromaDB" if chroma_store.is_chroma_active else "in-memory fallback"
 
     lines = [
@@ -114,7 +126,7 @@ def log_startup_config() -> None:
         f"  LLM provider:      {settings.llm_provider}",
         f"  Search provider:   {settings.search_provider}",
         f"  Sandbox provider:  {settings.sandbox_provider if settings.sandbox_enabled else 'disabled'}",
-        f"  {db_backend}",
+        f"  Database backend:  {db_label}",
         f"  Vector backend:    {vector_backend}",
         f"  Policy engine:     {'active' if settings.policy_engine_enabled else 'inactive'}",
         "=" * 60,

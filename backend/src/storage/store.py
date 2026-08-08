@@ -133,14 +133,14 @@ class MemoryStore:
             "Research runs will NOT survive a process restart."
         )
         self._database_backend = "memory"
-        self._db_backend_name = "memory"
+        self._db_backend_name = "in-memory fallback"
         return None
 
     def _try_connect(self, engine: Optional[Engine], create_tables: bool):
         if engine is None:
             self._db_active = False
             self._database_backend = "memory"
-            self._db_backend_name = "memory"
+            self._db_backend_name = "in-memory fallback"
             return
         try:
             from sqlalchemy import text as sa_text
@@ -163,7 +163,7 @@ class MemoryStore:
             )
             self._db_active = False
             self._database_backend = "memory"
-            self._db_backend_name = "memory"
+            self._db_backend_name = "in-memory fallback"
 
     # -- backward-compat properties (used by tests + health endpoint) ------
     @property
@@ -179,7 +179,7 @@ class MemoryStore:
     def db_backend(self) -> str:
         """Human-readable backend name for startup logging."""
         if not self._db_active:
-            return "memory"
+            return "in-memory fallback"
         return self._db_backend_name
 
     @property
